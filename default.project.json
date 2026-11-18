@@ -1,0 +1,21 @@
+{
+	"name": "SAFD",
+	"port": 34874,
+	"experienceId": 0,
+	"placeId": 0,
+	"globIgnorePaths": ["**/*.md"],
+
+	"tree": {
+		"ServerScriptService": {
+			"Server": { "$path": "src/Server" }
+		},
+		"ReplicatedStorage": {
+			"Shared": { "$path": "src/Shared" }
+		},
+		"StarterPlayer": {
+			"StarterPlayerScripts": {
+				"Client": { "$path": "src/Client" }
+			}
+		}
+	}
+}

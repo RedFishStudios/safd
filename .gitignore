@@ -1,0 +1,22 @@
+# Lync / tooling output
+sourcemap.json
+*.lock
+roblox.yml
+globalTypes.d.luau
+
+# Place files live outside the repo; never commit binaries by accident
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Claude Code local settings
+.claude/settings.local.json
+node_modules/
