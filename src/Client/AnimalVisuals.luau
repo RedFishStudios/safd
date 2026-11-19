@@ -189,12 +189,55 @@ local function addBaseAnimal(model: Instance)
 	}
 end
 
-local function pickTarget(w: Wanderer): Vector2
-	local angle = rng:NextNumber(0, math.pi * 2)
-	local radius = rng:NextNumber(2, w.radius)
-	local p = w.home + Vector2.new(math.cos(angle), math.sin(angle)) * radius
-	local b = w.bounds
-	return Vector2.new(math.clamp(p.X, b[1], b[2]), math.clamp(p.Y, b[3], b[4]))
+-- Only solid things are in the way (trees, rocks, cacti, the run's blockades): grass, pebbles and the paths have
+-- their collisions off, so the cast goes straight through them.
+local pathParams = RaycastParams.new()
+pathParams.FilterType = Enum.RaycastFilterType.Exclude
+pathParams.RespectCanCollide = true
+local lastFilter = 0
+local function pathClear(w: Wanderer, model: Model, to: Vector2): boolean
+	local now = os.clock()
+	if now - lastFilter > 2 then
+		lastFilter = now
+		local ex: { Instance } = {}
+		for _, name in { "WildAnimals", "BaseAnimals", "PlayerBases" } do
+			local f = workspace:FindFirstChild(name)
+			if f then
+				table.insert(ex, f)
+			end
+		end
+		for _, p in Players:GetPlayers() do
+			if p.Character then
+				table.insert(ex, p.Character)
+			end
+		end
+		pathParams.FilterDescendantsInstances = ex
+	end
+	local h = model:GetAttribute("Height") or 4
+	local r = math.clamp(h * 0.3, 0.8, 4)
+	local from = w.anchor:PointToWorldSpace(Vector3.new(w.pos.X, 0, w.pos.Y))
+	local goal = w.anchor:PointToWorldSpace(Vector3.new(to.X, 0, to.Y))
+	local y = w.y + r + 0.6 -- (above the floor, so the ground itself doesn't count)
+	local a, b = Vector3.new(from.X, y, from.Z), Vector3.new(goal.X, y, goal.Z)
+	local dir = b - a
+	if dir.Magnitude < 0.1 then
+		return true
+	end
+	return workspace:Spherecast(a, r, dir + dir.Unit * r, pathParams) == nil
+end
+
+local function pickTarget(w: Wanderer, model: Model): Vector2?
+	for _ = 1, 6 do
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local radius = rng:NextNumber(2, w.radius)
+		local p = w.home + Vector2.new(math.cos(angle), math.sin(angle)) * radius
+		local b = w.bounds
+		local t = Vector2.new(math.clamp(p.X, b[1], b[2]), math.clamp(p.Y, b[3], b[4]))
+		if pathClear(w, model, t) then
+			return t
+		end
+	end
+	return nil
 end
 
 -- Far from the camera an animal sleeps: no animation and no wandering, so dozens of (big) animals out of sight cost
@@ -276,8 +319,12 @@ local function step(dt: number)
 		else
 			w.wait -= dt
 			if w.wait <= 0 then
-				w.target = pickTarget(w)
-				AnimalVisuals.play(model, "Walk")
+				w.target = pickTarget(w, model)
+				if w.target then
+					AnimalVisuals.play(model, "Walk")
+				else
+					w.wait = rng:NextNumber(1, 3) -- (boxed in: look around a bit, try again)
+				end
 			end
 		end
 	end

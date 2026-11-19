@@ -38,6 +38,7 @@ export type Context = {
 	addObstacle: (Instance) -> (),
 	shake: (number) -> (),
 	hit: (Vector3, Vector3) -> (), -- (hit position, push direction)
+	dodged: ((mode: string) -> ())?, -- a slide / jump barrier went past you cleanly (Client/ChaseFx feedback)
 }
 
 local function part(props: { [string]: any }): Part
@@ -1275,6 +1276,9 @@ function Hazards.barrier(ctx: Context, mode: string, biome: number, kinds: { str
 		if along < -thickness - 1.5 and not passed then
 			passed = true
 			hide()
+			if not hitAlready and ctx.dodged then
+				ctx.dodged(mode)
+			end
 		end
 		if hitAlready or swoop < 1 or math.abs(along) > thickness + 1.2 then
 			return

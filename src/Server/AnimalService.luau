@@ -26,10 +26,13 @@ local wildFolder: Folder
 local baseFolder: Folder
 local wild: { [number]: { Model } } = {}
 local carried: { [Player]: { id: { string }, models: { Model } } } = {}
+-- the run home in progress: the multiplier rings collected so far (Client/RunCourse, Net.RunRing)
+local runs: { [Player]: { product: number, rings: { number }, started: number } } = {}
 local placedModels: { [Player]: { [string]: Model } } = {}
 
 local DisasterStart = Net.event("DisasterStart")
 local DisasterEnd = Net.event("DisasterEnd")
+local RunReward = Net.event("RunReward")
 local InventoryChanged = Net.event("InventoryChanged")
 local Notify = Net.event("Notify")
 local PlaceAnimal = Net.event("PlaceAnimal")
@@ -214,7 +217,7 @@ local function onRescue(player: Player, model: Model, biome: number)
 		return
 	end
 	local animalInfo = Config.Animals[model:GetAttribute("AnimalId") or ""]
-	local reach = 40 + (if animalInfo then Config.Rarities[animalInfo.Rarity].Height else 0) -- (the big ones are huge)
+	local reach = 40 + (if animalInfo then animalInfo.Height else 0) -- (the big ones are huge)
 	if (root.Position - model:GetPivot().Position).Magnitude > reach then -- animals wander client-side
 		return
 	end
@@ -254,6 +257,9 @@ local function onRescue(player: Player, model: Model, biome: number)
 	-- Every pickup (re)starts the chase: the client ignores it while one is already running, and if a chase ever
 	-- ended while you still carried animals, the next pickup brings it straight back (it used to fire only for the
 	-- first animal of a stack, 2026-11-19).
+	if not runs[player] then
+		runs[player] = { product = 1, rings = {}, started = os.clock() }
+	end
 	if not MapInfo.isSafe(root.Position) then
 		DisasterStart:FireClient(player, biome)
 	end
@@ -332,7 +338,7 @@ function spawnWild(biome: number)
 		task.delay(5, spawnWild, biome)
 		return
 	end
-	local model = AnimalFactory.create(id, rarityOf(id).Height, rarityOf(id).Height * 2.2)
+	local model = AnimalFactory.create(id, Config.animalHeight(id), Config.animalHeight(id) * 2.2)
 	model:PivotTo(CFrame.new(spot) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0))
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	model:SetAttribute("Biome", biome)
@@ -346,8 +352,8 @@ function spawnWild(biome: number)
 	-- Wild animals wander on each player's screen only, so the server's copy stays at the spawn spot. Roblox checks a
 	-- prompt's distance against the server's copy, so the server allows the wander radius on top; each client shrinks
 	-- it back to ClientRange (Client/AnimalVisuals) so the prompt still only shows up close.
-	prompt.MaxActivationDistance = 8 + rarityOf(id).Height * 0.8 + Config.AnimalWanderRadius * 2 + 14
-	prompt:SetAttribute("ClientRange", 8 + rarityOf(id).Height * 0.8)
+	prompt.MaxActivationDistance = 8 + Config.animalHeight(id) * 0.8 + Config.AnimalWanderRadius * 2 + 14
+	prompt:SetAttribute("ClientRange", 8 + Config.animalHeight(id) * 0.8)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = model.PrimaryPart
 	prompt.Triggered:Connect(function(player)
@@ -362,6 +368,7 @@ end
 -- Carrying / deposit --------------------------------------------------------------------------------------------
 
 local function clearStack(player: Player): { string }
+	runs[player] = nil
 	local stack = carried[player]
 	carried[player] = nil
 	player:SetAttribute("Carrying", 0)
@@ -376,6 +383,7 @@ end
 
 local function deposit(player: Player)
 	local data = DataService.get(player)
+	local run = runs[player]
 	local ids = clearStack(player)
 	if not data or #ids == 0 then
 		return
@@ -388,7 +396,35 @@ local function deposit(player: Player)
 			table.insert(newlyFound, Config.Animals[id].Name)
 		end
 	end
+	-- the run bonus: some seconds of the rescued animals' income, times every ring you flew through on the way
+	local income = 0
+	for _, id in ids do
+		income += Config.Animals[id].Income
+	end
+	local base = income * Config.RunRewardSeconds
+	local product = if run then run.product else 1
+	local total = base * product
+	data.Money += total
+	refreshStats(player)
+	RunReward:FireClient(player, {
+		Base = base,
+		Rings = if run then run.rings else {},
+		Total = total,
+		Animals = ids,
+	})
 	pushInventory(player)
+	-- hold the animal you just brought home, ready to place in your base
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if humanoid and backpack and humanoid.Health > 0 then
+		for _, tool in backpack:GetChildren() do
+			if tool:IsA("Tool") and tool:GetAttribute("AnimalId") == ids[#ids] then
+				humanoid:EquipTool(tool)
+				break
+			end
+		end
+	end
 	DisasterEnd:FireClient(player, #ids, false)
 	if #newlyFound > 0 then
 		notify(
@@ -419,7 +455,7 @@ local function spawnPlaced(player: Player, entry)
 	if not plot or not Config.Animals[entry.Id] then
 		return
 	end
-	local model = AnimalFactory.create(entry.Id, rarityOf(entry.Id).Height, rarityOf(entry.Id).Height * 2.2)
+	local model = AnimalFactory.create(entry.Id, Config.animalHeight(entry.Id), Config.animalHeight(entry.Id) * 2.2)
 	model:PivotTo(BaseService.toWorld(plot, entry.X, entry.Z, entry.R))
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	-- no shadows from the animals in the bases (the giant ones darkened the whole yard)
@@ -440,7 +476,7 @@ local function spawnPlaced(player: Player, entry)
 	prompt.ObjectText = Config.Animals[entry.Id].Name
 	prompt.HoldDuration = 0.6
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.MaxActivationDistance = 8 + rarityOf(entry.Id).Height * 0.8
+	prompt.MaxActivationDistance = 8 + Config.animalHeight(entry.Id) * 0.8
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = model.PrimaryPart
 	prompt.Triggered:Connect(function(who)
@@ -648,6 +684,20 @@ function AnimalService.init()
 	GetState.OnServerInvoke = function(player)
 		return AnimalService.state(player)
 	end
+
+	-- a multiplier ring on the run home: only while carrying animals, only the ring values that exist, a few a
+	-- second at most, the product capped
+	Net.event("RunRing").OnServerEvent:Connect(function(player, value)
+		local run = runs[player]
+		if not run or type(value) ~= "number" or not table.find(Config.RunRingValues, value) then
+			return
+		end
+		if #run.rings >= 40 or #run.rings > (os.clock() - run.started) * 3 + 2 then
+			return
+		end
+		table.insert(run.rings, value)
+		run.product = math.min(run.product * value, Config.RunMultiplierCap)
+	end)
 
 	Net.event("ClaimOffline").OnServerEvent:Connect(function(player)
 		local data = DataService.get(player)

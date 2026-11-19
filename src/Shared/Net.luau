@@ -21,6 +21,8 @@ local EVENTS = {
 	"ClaimFreeItem", -- client -> server
 	"ProductRequest", -- client -> server (productKey) -> prompts the developer product if configured
 	"AdminCommand", -- client -> server (command, args) — admins only
+	"RunRing", -- client -> server (value): a multiplier ring collected on the run home
+	"RunReward", -- server -> client ({ Base, Rings, Total, Animals }): the bonus for getting animals home
 }
 local FUNCTIONS = {
 	"GetState", -- client -> server, returns { Inventory = {...} } once data is loaded

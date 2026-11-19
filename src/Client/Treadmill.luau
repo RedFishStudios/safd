@@ -179,12 +179,79 @@ local function start(root: Model, character: Model, humanoid: Humanoid, hrp: Bas
 	setSpeedMat(true)
 end
 
+-- Other players on their treadmills. Their own client plays the run on their character, but that playback did not
+-- always reach everyone else (they looked like they stood still on the belt, 2026-11-19), so every client also plays
+-- it itself on anyone whose Training attribute (Server/TrainingService) is on, at their treadmill's leg speed.
+local others: { [Player]: { track: AnimationTrack, humanoid: Humanoid } } = {}
+local function treadmillOf(p: Player): Model?
+	local bases = workspace:FindFirstChild("PlayerBases")
+	if not bases then
+		return nil
+	end
+	for _, base in bases:GetChildren() do
+		if base:GetAttribute("Owner") == p.UserId then
+			local t = base:FindFirstChild("Treadmill")
+			return if t and t:IsA("Model") then t else nil
+		end
+	end
+	return nil
+end
+local function stopOther(p: Player)
+	local o = others[p]
+	if o then
+		others[p] = nil
+		o.track:Stop(0.2)
+	end
+end
+local function updateOthers()
+	for _, p in Players:GetPlayers() do
+		if p == player then
+			continue
+		end
+		local character = p.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local training = p:GetAttribute("Training") == true and humanoid ~= nil and humanoid.Health > 0
+		local o = others[p]
+		if o and (not training or o.humanoid ~= humanoid) then
+			stopOther(p)
+			o = nil
+		end
+		if training and not o then
+			local animator = (humanoid :: Humanoid):FindFirstChildOfClass("Animator")
+			if animator then
+				local ok, track = pcall(function()
+					return animator:LoadAnimation(runAnimation(character :: Model, humanoid :: Humanoid))
+				end)
+				if ok and track then
+					track.Priority = Enum.AnimationPriority.Action
+					track.Looped = true
+					track:Play(0.15)
+					local t = treadmillOf(p)
+					track:AdjustSpeed(if t then legSpeed(t) else Config.TreadmillRunAnimSpeed)
+					others[p] = { track = track, humanoid = humanoid :: Humanoid }
+				end
+			end
+		end
+	end
+	for p in others do
+		if not p.Parent then
+			stopOther(p)
+		end
+	end
+end
+
 function Treadmill.isTraining(): boolean
 	return session ~= nil
 end
 
 function Treadmill.init()
 	-- (the "+N" popup, sound and sparkles for each payout: Client/SpeedFx)
+	task.spawn(function()
+		while true do
+			task.wait(0.2)
+			updateOthers()
+		end
+	end)
 	RunService.Heartbeat:Connect(function()
 		local s = session
 		if s then

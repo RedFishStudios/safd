@@ -1,5 +1,9 @@
 -- The escape sequence, entirely client-side (only the player who triggered it sees it):
---   * a wall made of the biome closes in from behind and shoves the player towards the base
+--   * a short cutscene first: the camera flies to the far end of the biome, where the disaster rises out of the
+--     ground with a roar, then swoops back behind you: RUN!
+--   * the wall made of the biome then comes after you (fast while it's far behind, Config.WallCatchUpGap)
+--   * a different course every run (Client/RunCourse): blockades, split paths, ziplines, launch pads, x2/x3/x5 rings
+--   * every action answers with a sound and a camera punch (Client/ChaseFx)
 --   * nearby scenery topples over one piece at a time, rocks drop from the sky, the floor cracks
 --   * touching any of that slows the player for Config.SlowDuration seconds
 --   * red "RUN!" banner, pulsing red screen edges, camera shake, tint, music
@@ -17,8 +21,10 @@ local Config = require(Shared.Config)
 local MapInfo = require(Shared.MapInfo)
 local Net = require(Shared.Net)
 
+local ChaseFx = require(script.Parent.ChaseFx)
 local HUD = require(script.Parent.HUD)
 local Hazards = require(script.Parent.Hazards)
+local RunCourse = require(script.Parent.RunCourse)
 local Movement = require(script.Parent.Movement)
 local Sfx = require(script.Parent.Sfx)
 
@@ -67,6 +73,12 @@ type State = {
 	nextBarrage: number,
 	shake: number,
 	connections: { RBXScriptConnection },
+	intro: boolean,
+	course: RunCourse.Course?,
+	bonus: number,
+	bonusLabel: TextLabel?,
+	nextTick: number,
+	locked: { walk: boolean, jumpPower: number, jumpHeight: number }?,
 }
 
 local state: State? = nil
@@ -455,14 +467,21 @@ local function hazardContext(s: State): Hazards.Context
 		end,
 		hit = function(_, push: Vector3)
 			local _, humanoid, hrp = character()
-			if not humanoid or not hrp then
+			if not humanoid or not hrp or RunCourse.isRiding(s.course) then
 				return
 			end
+			ChaseFx.play("Thud", 1, rng:NextNumber(0.9, 1.1))
+			ChaseFx.kick(-8)
 			Movement.slow(Config.HazardHitSlow)
 			hrp.AssemblyLinearVelocity = push * 45 + Vector3.new(0, 38, 0)
 			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 			s.shake = math.max(s.shake, 1.3)
 			flash("OUCH!", Color3.fromRGB(255, 70, 70))
+		end,
+		dodged = function(mode: string)
+			ChaseFx.pop(if mode == "Slide" then "NICE SLIDE!" else "NICE JUMP!", Color3.fromRGB(110, 255, 140))
+			ChaseFx.play("Good", 0.8, 1.25)
+			ChaseFx.kick(4)
 		end,
 	}
 end
@@ -663,6 +682,12 @@ local function update(s: State, dt: number)
 	if MapInfo.isSafe(hrp.Position) then
 		return
 	end
+	if s.intro then
+		return -- (the cutscene is playing)
+	end
+	if s.course then
+		RunCourse.update(s.course, hrp, humanoid, dt)
+	end
 
 	-- Safety net: never lose your animals to a fall through the map.
 	if hrp.Position.Y < s.groundY - 12 then
@@ -671,7 +696,10 @@ local function update(s: State, dt: number)
 	end
 
 	-- Wall advances and shoves.
-	s.wallCF += s.toBase * s.speed * dt
+	-- (formed far back at the end of the biome, it surges in until it's close, then keeps the biome's pace)
+	local behind = (hrp.Position - s.wallCF.Position):Dot(s.toBase)
+	local speed = s.speed + math.max(0, behind - Config.WallCatchUpGap) * Config.WallCatchUpRate
+	s.wallCF += s.toBase * speed * dt
 	s.wall:PivotTo(s.wallCF)
 	local frontPlane = s.wallCF.Position + s.toBase * (WALL_THICKNESS / 2 + 4)
 	local gap = (hrp.Position - frontPlane):Dot(s.toBase)
@@ -682,6 +710,11 @@ local function update(s: State, dt: number)
 		return
 	end
 	local intensity = math.clamp(1 - gap / 90, 0, 1)
+	-- a heartbeat thump that quickens as it closes in
+	if gap < 32 and now >= s.nextTick then
+		s.nextTick = now + math.clamp(gap / 45, 0.2, 0.65)
+		ChaseFx.play("Thud", 0.3, 1.7)
+	end
 
 	-- Hazards.
 	if now - s.lastScan > 2 then
@@ -737,7 +770,7 @@ local function update(s: State, dt: number)
 	end
 
 	-- Obstructions slow the player.
-	if #s.obstacles > 0 then
+	if #s.obstacles > 0 and not RunCourse.isRiding(s.course) then
 		local touching = Workspace:GetPartBoundsInBox(hrp.CFrame, Vector3.new(3.5, 6.5, 3.5), s.overlap)
 		if #touching > 0 then
 			if not Movement.isSlowed() then
@@ -829,16 +862,49 @@ function Disaster.start(biomeIndex: number)
 		nextBarrage = os.clock() + 5,
 		shake = 1,
 		connections = {},
+		intro = true,
+		course = nil,
+		bonus = 1,
+		bonusLabel = nil,
+		nextTick = 0,
+		locked = nil,
 	}
 	local groundY = (minV and maxV) and maxV.Y or hrp.Position.Y - 3
 	s.groundY = groundY
 	local centerX = (s.trackMinX + s.trackMaxX) / 2
-	local behind = hrp.Position - toBase * (Config.WallStartDistance + WALL_THICKNESS / 2)
-	local wallPos = Vector3.new(centerX, groundY + 40, behind.Z)
+	-- The disaster forms at the far end of the biome (user, 2026-11-19), but never closer behind you than
+	-- Config.WallStartDistance (the legendaries live out there).
+	local back = -toBase
+	local farZ = if minV and maxV then (if back.Z > 0 then maxV.Z else minV.Z) else hrp.Position.Z
+	local minBehind = hrp.Position - toBase * (Config.WallStartDistance + WALL_THICKNESS / 2)
+	local wallZ = if (farZ - hrp.Position.Z) * back.Z > (minBehind.Z - hrp.Position.Z) * back.Z
+		then farZ
+		else minBehind.Z
+	local wallPos = Vector3.new(centerX, groundY + 40, wallZ)
 	s.wallCF = CFrame.lookAt(wallPos, wallPos + toBase)
 	s.wall = buildWall(s, biome, s.wallCF)
+	s.wall:PivotTo(s.wallCF - Vector3.new(0, 100, 0)) -- still under the ground: the cutscene raises it
 	s.wall.Parent = folder
 	state = s
+
+	-- the run bonus readout
+	local bonusLabel = textLabel(gui, {
+		Position = UDim2.fromScale(0.5, 0.225),
+		Size = UDim2.fromScale(0.3, 0.05),
+		Text = "RUN BONUS x1",
+		TextColor3 = Color3.fromRGB(255, 230, 120),
+	})
+	s.bonusLabel = bonusLabel
+	-- this run's course
+	s.course = RunCourse.build(folder, hrp.Position, function(value: number)
+		s.bonus = math.min(s.bonus * value, Config.RunMultiplierCap)
+		bonusLabel.Text = "RUN BONUS x" .. s.bonus
+		local sc = bonusLabel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		sc.Parent = bonusLabel
+		sc.Scale = 1.5
+		TweenService:Create(sc, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+			:Play()
+	end)
 
 	Sfx.startChase()
 
@@ -856,7 +922,91 @@ function Disaster.start(biomeIndex: number)
 			Disaster.stop(true)
 		end)
 	)
-	flash(`DISASTER IN {string.upper(biome.Name)}!`, Color3.fromRGB(255, 60, 40))
+	-- a camera punch for your moves while you run
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		table.insert(
+			s.connections,
+			animator.AnimationPlayed:Connect(function(track)
+				local id = track.Animation and track.Animation.AnimationId or ""
+				if id == Config.DoubleJumpAnimation then
+					ChaseFx.kick(7)
+				elseif id == Config.SlideAnimation then
+					ChaseFx.kick(5)
+				end
+			end)
+		)
+	end
+
+	-- The cutscene: what you're running from.
+	task.spawn(function()
+		local cam = Workspace.CurrentCamera
+		s.locked = { walk = true, jumpPower = humanoid.JumpPower, jumpHeight = humanoid.JumpHeight }
+		Movement.locked = true
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+		ChaseFx.letterbox(true)
+		ChaseFx.play("Rumble", 1, 0.8)
+		local side = if rng:NextNumber() < 0.5 then -1 else 1
+		local wallTop = wallPos + Vector3.new(0, 10, 0)
+		local shot =
+			CFrame.lookAt(wallPos + toBase * 95 + Vector3.new(side * 30, -10, 0), wallTop - Vector3.new(0, 18, 0))
+		ChaseFx.cameraTo(shot, 0.85, Enum.EasingStyle.Quad)
+		if state ~= s then
+			return
+		end
+		ChaseFx.play("Roar", 1.2, 0.45)
+		ChaseFx.play("Impact", 1, 0.7)
+		ChaseFx.pop(`THE {string.upper(biome.Name)} IS COLLAPSING!`, Color3.fromRGB(255, 80, 50), true)
+		local t0 = os.clock()
+		local RISE = 1.35
+		while os.clock() - t0 < RISE and state == s do
+			local k = (os.clock() - t0) / RISE
+			local e = TweenService:GetValue(k, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+			s.wall:PivotTo(s.wallCF - Vector3.new(0, 100 * (1 - e), 0))
+			cam.CFrame = shot * CFrame.new(rng:NextNumber(-1, 1) * 0.6, rng:NextNumber(-1, 1) * 0.6, 0)
+			if rng:NextNumber() < 0.25 then
+				dust(
+					s,
+					Vector3.new(wallPos.X + rng:NextNumber(-60, 60), groundY + 2, wallZ + toBase.Z * 10),
+					biome.WallColor,
+					8
+				)
+			end
+			task.wait()
+		end
+		if state ~= s then
+			return
+		end
+		s.wall:PivotTo(s.wallCF)
+		ChaseFx.play("Impact", 0.9, 0.55)
+		-- swoop back behind you
+		local _, _, root = character()
+		if root then
+			local behindYou =
+				CFrame.lookAt(root.Position - toBase * 14 + Vector3.new(0, 6, 0), root.Position + toBase * 25)
+			ChaseFx.play("Whoosh", 1, 0.7)
+			ChaseFx.cameraTo(behindYou, 0.7, Enum.EasingStyle.Quad)
+		end
+		if state ~= s then
+			return
+		end
+		ChaseFx.releaseCamera()
+		ChaseFx.letterbox(false)
+		Movement.locked = false
+		humanoid.JumpPower = s.locked.jumpPower
+		humanoid.JumpHeight = s.locked.jumpHeight
+		s.locked = nil
+		s.intro = false
+		local now = os.clock()
+		s.nextProjectile = now + 1.2
+		s.nextRoller = now + 2.6
+		s.nextBarrage = now + 6
+		ChaseFx.pop("RUN!", Color3.fromRGB(255, 40, 40), true)
+		ChaseFx.play("Boost", 1, 0.9)
+		ChaseFx.kick(14)
+	end)
 end
 
 function Disaster.stop(lost: boolean)
@@ -868,6 +1018,18 @@ function Disaster.stop(lost: boolean)
 	for _, connection in s.connections do
 		connection:Disconnect()
 	end
+	-- (stopped in the middle of the cutscene: give the camera and the controls back)
+	if s.intro then
+		ChaseFx.releaseCamera()
+		ChaseFx.letterbox(false)
+		local _, h = character()
+		if s.locked and h then
+			h.JumpPower = s.locked.jumpPower
+			h.JumpHeight = s.locked.jumpHeight
+		end
+		Movement.locked = false
+	end
+	RunCourse.destroy(s.course)
 	-- Put the world back the way it was.
 	for item, original in s.fallen do
 		if item.Parent then

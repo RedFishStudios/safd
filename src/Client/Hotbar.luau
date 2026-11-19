@@ -53,8 +53,7 @@ local function startPlacing(tool: Tool)
 		HUD.toast("You don't have a base yet.", Color3.fromRGB(255, 120, 80))
 		return
 	end
-	local ghost =
-		AnimalFactory.create(id, Config.Rarities[info.Rarity].Height, Config.Rarities[info.Rarity].Height * 2.2)
+	local ghost = AnimalFactory.create(id, info.Height, info.Height * 2.2)
 	for _, part in Util.parts(ghost) do
 		part.CanQuery = false
 	end

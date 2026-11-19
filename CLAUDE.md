@@ -87,4 +87,11 @@ The map already exists. It looks like a mining / training simulator:
   both sides, the far end) and `SafetyFloor` pieces just under the biome floors (top 0.95 vs the floor's 1.0),
   which fill holes where decorations with collisions off stood in for floor (Candyland). Parts max out at 2048
   studs, so long pieces are split. `Workspace.SAFD_EdgeFloors` are the older 140-wide side floors.
+- Map props are unions (2026-11-19): every prop up to 60 studs across in `Workspace.Levels.*` and
+  `Non_functional_spawn_assets` was unioned from its bricks (UsePartColor off, so colours stay). Solid if at least
+  4 tall and 2.5 wide, otherwise walk-through; pathway decor is never solid. Workspace went 125k -> 11k parts.
+  Bricks with see-through parts or children were left as they were. The original bricks are in
+  `../Revanoire - stud mining commission - resized.rbxl` (and Roblox version history). Don't rely on Studio undo for
+  `UnionAsync` work: it yields mid-recording and undo only half-reverts it.
+- Unused leftovers from the original map (`Ores`, `Treadmills`) were moved to `ServerStorage.SAFD_Unused`.
 - DataStore needs the place published (and Studio API access on); until then data is not saved.

@@ -28,7 +28,14 @@ Config.StartingBase = "BaseLvl1" -- template inside Workspace.Bases (moved to Se
 -- Carrying / disaster -------------------------------------------------------------------------------------------
 Config.MaxCarry = 10
 Config.CarryHeight = 2.4 -- each carried animal is scaled to this height on the head stack
-Config.WallStartDistance = 70 -- how far behind the player the wall appears
+Config.WallStartDistance = 70 -- the wall forms at the far end of the biome, but never closer behind you than this
+Config.WallCatchUpGap = 75 -- while it's further behind you than this, the wall surges in faster to close the gap
+Config.WallCatchUpRate = 0.6 -- extra studs/s per stud of gap past WallCatchUpGap
+Config.PlayAreaX = { -219.5, 203.5 } -- inside faces of Workspace.SAFD_Boundaries' side walls (the biomes)
+-- the run home: multiplier rings (Client/RunCourse) multiply a bonus of this many seconds of the rescued animals' income
+Config.RunRewardSeconds = 30
+Config.RunMultiplierCap = 100
+Config.RunRingValues = { 2, 3, 5 }
 Config.SlowDuration = 2 -- seconds slowed after touching an obstruction
 Config.SlowMultiplier = 0.45
 Config.ToppleInterval = 0.7 -- hillside scenery shakes, leans and falls as you approach
@@ -110,12 +117,15 @@ Config.AutosaveInterval = 60
 
 -- Rarities (index 1..5, lowest to highest) -----------------------------------------------------------------------
 Config.Rarities = {
-	{ Name = "Common", Color = Color3.fromRGB(200, 200, 200), Height = 9, Income = 1, Weight = 50 },
-	{ Name = "Uncommon", Color = Color3.fromRGB(85, 220, 95), Height = 12, Income = 3, Weight = 25 },
-	{ Name = "Rare", Color = Color3.fromRGB(60, 150, 255), Height = 17, Income = 8, Weight = 14 },
-	{ Name = "Epic", Color = Color3.fromRGB(180, 80, 255), Height = 32, Income = 20, Weight = 8 },
-	{ Name = "Legendary", Color = Color3.fromRGB(255, 190, 40), Height = 58, Income = 50, Weight = 1 },
+	{ Name = "Common", Color = Color3.fromRGB(200, 200, 200), Size = 1, Income = 1, Weight = 50 },
+	{ Name = "Uncommon", Color = Color3.fromRGB(85, 220, 95), Size = 1.2, Income = 3, Weight = 25 },
+	{ Name = "Rare", Color = Color3.fromRGB(60, 150, 255), Size = 1.45, Income = 8, Weight = 14 },
+	{ Name = "Epic", Color = Color3.fromRGB(180, 80, 255), Size = 1.85, Income = 20, Weight = 8 },
+	{ Name = "Legendary", Color = Color3.fromRGB(255, 190, 40), Size = 2.6, Income = 50, Weight = 1 },
 }
+-- How tall an animal stands: small in the first biome, bigger in every biome after it, and bigger again by rarity
+-- (a Grassy Meadows chicken ~3.5 studs, a Candyland legendary ~26; the player is ~5). Config.animalHeight below.
+Config.BiomeAnimalHeight = { 3.5, 4.5, 5.5, 7, 8.5, 10 }
 
 -- Biomes, ordered from nearest to the bases to furthest. Animals are listed Common -> Legendary.
 -- Model names must match the animal models inside ReplicatedStorage.Assets.
@@ -302,8 +312,14 @@ for biomeIndex, biome in Config.Biomes do
 			Biome = biomeIndex,
 			Rarity = rarityIndex,
 			Income = Config.Rarities[rarityIndex].Income * biome.IncomeMultiplier,
+			Height = Config.BiomeAnimalHeight[biomeIndex] * Config.Rarities[rarityIndex].Size,
 		}
 	end
+end
+
+function Config.animalHeight(id: string): number
+	local info = Config.Animals[id]
+	return if info then info.Height else 4
 end
 
 return Config
