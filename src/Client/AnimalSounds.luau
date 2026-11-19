@@ -71,13 +71,32 @@ local CALL_OF = {
 	Flamingo = "Chirp",
 	Unicorn = "Neigh",
 	Qilin = "Roar",
+	-- from the reference's animal pack
+	Pig = "Oink",
+	Cow = "Moo",
+	GoldenSwan = "Chirp",
+	ArcticHare = "Squeak",
+	SnowyOwl = "Chirp",
+	IceDragon = "Dragon",
+	Jerboa = "Squeak",
+	DesertLizard = "Hiss",
+	Camel = "Bellow",
+	AshToad = "Croak",
+	LavaBeetle = "Buzz",
+	MagmaCrab = "Hiss",
+	MyceliumGolem = "Growl",
+	CloudLamb = "Squeak",
+	MoonRabbit = "Squeak",
+	StarbornChimera = "Roar",
+	-- (slugs and snails make no sound)
 }
 
 -- (heard more: the biomes' animals are few and spread out, so with calls every 8-20 s within 90 studs you rarely heard
 -- one, 2026-11-19)
-local WILD_EVERY = { 3.5, 8 } -- seconds between one wild animal's calls
-local BASE_EVERY = { 9, 20 } -- base animals call a little less often
-local GAP = 0.45 -- at least this long between any two calls, so a crowd isn't a din
+-- (fewer again: "too many animal sounds", 2026-11-19)
+local WILD_EVERY = { 9, 18 } -- seconds between one wild animal's calls
+local BASE_EVERY = { 25, 50 } -- base animals call a lot less often
+local GAP = 2.2 -- at least this long between any two calls, so a crowd isn't a din
 local RANGE = 170 -- animals further than this from the camera stay quiet
 local LOUDNESS = 3.4 -- x the call's own volume x the Animal Sounds slider (0.5 by default)
 

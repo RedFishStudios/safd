@@ -252,8 +252,7 @@ local function onRescue(player: Player, model: Model, biome: number)
 	table.insert(stack.models, carry)
 	player:SetAttribute("Carrying", #stack.id)
 
-	local info = Config.Animals[id]
-	notify(player, `Rescued a {rarityOf(id).Name} {info.Name}!`, rarityOf(id).Color)
+	-- (the pickup card with the animal's picture: Client/RescueFx)
 	-- Every pickup (re)starts the chase: the client ignores it while one is already running, and if a chase ever
 	-- ended while you still carried animals, the next pickup brings it straight back (it used to fire only for the
 	-- first animal of a stack, 2026-11-19).
@@ -319,21 +318,22 @@ function spawnWild(biome: number)
 		return
 	end
 	local animals = Config.Biomes[biome].Animals
-	-- only one legendary out in a biome at a time
-	local legendaryOut = false
+	-- Legendary and up (Config.FarRarity): one out in a biome at a time
+	local farOut = false
 	for _, other in list do
 		local otherId = other:GetAttribute("AnimalId")
-		if otherId and Config.Animals[otherId] and Config.Animals[otherId].Rarity == #Config.Rarities then
-			legendaryOut = true
+		if otherId and Config.Animals[otherId] and Config.Animals[otherId].Rarity >= Config.FarRarity then
+			farOut = true
 		end
 	end
 	local weights = {}
-	for i = 1, #animals do
-		weights[i] = if i == #Config.Rarities and legendaryOut then 0 else Config.Rarities[i].Weight
+	for i, animalId in animals do
+		local r = Config.Animals[animalId].Rarity
+		weights[i] = if r >= Config.FarRarity and farOut then 0 else Config.Rarities[r].Weight
 	end
-	local rarity = Util.weightedPick(rng, weights)
-	local id = animals[rarity]
-	local spot = randomSpot(biome, rarity == #Config.Rarities)
+	local slot = Util.weightedPick(rng, weights)
+	local id = animals[slot]
+	local spot = randomSpot(biome, Config.Animals[id].Rarity >= Config.FarRarity)
 	if not spot then
 		task.delay(5, spawnWild, biome)
 		return

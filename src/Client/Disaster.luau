@@ -79,6 +79,7 @@ type State = {
 	bonusLabel: TextLabel?,
 	nextTick: number,
 	locked: { walk: boolean, jumpPower: number, jumpHeight: number }?,
+	guide: { label: TextLabel, chevrons: { BasePart } }?,
 }
 
 local state: State? = nil
@@ -380,7 +381,7 @@ local function advanceScenery(s: State, hrp: BasePart, now: number)
 		local offset = Vector3.new(center.X - here.X, 0, center.Z - here.Z)
 		local ahead = offset:Dot(s.toBase)
 		local edge = isEdgeScenery(s, center)
-		if edge and ahead > 45 and ahead < 150 and not s.shaking[item] and shakingCount < 5 then
+		if edge and ahead > 60 and ahead < 170 and not s.shaking[item] and shakingCount < 5 then
 			-- Starts trembling well before you reach it.
 			s.fallen[item] = s.fallen[item] or pivotOf(item)
 			s.shaking[item] = {
@@ -391,13 +392,14 @@ local function advanceScenery(s: State, hrp: BasePart, now: number)
 			}
 			shakingCount += 1
 		end
-		if ahead > -10 and ahead < 45 then
+		-- (only things well ahead of you fall, so you see them coming and have time to react)
+		if ahead > 35 and ahead < 95 then
 			local side = if center.X < (s.trackMinX + s.trackMaxX) / 2 then -1 else 1
 			-- Alternate hillsides: prefer the side that didn't go last.
 			local score = offset.Magnitude + (if side == s.lastSide then 25 else 0)
 			if edge and score < bestScore then
 				best, bestScore, bestCF, bestSize = item, score, cf, size
-			elseif not edge and ahead > 15 and score < trailScore then
+			elseif not edge and ahead > 45 and score < trailScore then
 				trailBest, trailScore, trailCF, trailSize = item, score, cf, size
 			end
 		end
@@ -498,7 +500,7 @@ local function launchProjectile(s: State, hrp: BasePart, aimed: boolean)
 		local v = hrp.AssemblyLinearVelocity
 		target = hrp.Position + Vector3.new(v.X, 0, v.Z) * Config.TelegraphTime
 	else
-		target = aheadPoint(s, hrp, 8, 50)
+		target = aheadPoint(s, hrp, 25, 75)
 	end
 	target = Vector3.new(math.clamp(target.X, s.trackMinX + 4, s.trackMaxX - 4), target.Y, target.Z)
 	Hazards.projectile(hazardContext(s), Hazards.pick(theme.Projectiles), target)
@@ -682,6 +684,21 @@ local function update(s: State, dt: number)
 	if MapInfo.isSafe(hrp.Position) then
 		return
 	end
+	if s.guide then
+		local line = MapInfo.dangerLine()
+		local left = (line - hrp.Position):Dot(s.toBase)
+		s.guide.label.Text = `SAFE ZONE  {math.max(0, math.floor(left))}`
+		local wave = (os.clock() * 1.5) % 1
+		for i, c in s.guide.chevrons do
+			local d = 14 + (i - 1 + wave) * 9
+			local p = hrp.Position + s.toBase * d
+			-- (the arrow's top face shows "^" pointing along its -Z: aim -Z towards the base)
+			c.CFrame = CFrame.lookAt(
+				Vector3.new(p.X, s.groundY + 0.15, p.Z),
+				Vector3.new(p.X, s.groundY + 0.15, p.Z) + s.toBase
+			)
+		end
+	end
 	if s.intro then
 		return -- (the cutscene is playing)
 	end
@@ -728,7 +745,7 @@ local function update(s: State, dt: number)
 	if now >= s.nextProjectile and Hazards.activeTelegraphs < Config.MaxTelegraphs then
 		local range = Config.ProjectileInterval
 		s.nextProjectile = now + rng:NextNumber(range[1], range[2])
-		launchProjectile(s, hrp, rng:NextNumber() < 0.35)
+		launchProjectile(s, hrp, rng:NextNumber() < 0.2)
 	end
 	-- Things crossing the path take turns, one at a time: a wall to slide under, a roller from the side, a wall to
 	-- double jump over, a roller...
@@ -791,7 +808,8 @@ local function update(s: State, dt: number)
 		then "THE WALL IS RIGHT BEHIND YOU!"
 		else `Wall: {math.floor(gap)} studs behind you`
 	s.shake = math.max(0, s.shake - dt * 1.5)
-	local amplitude = 0.06 + intensity * 0.3 + s.shake * 0.8
+	-- (gentler: "the shake is a bit too much", 2026-11-19)
+	local amplitude = 0.02 + intensity * 0.12 + s.shake * 0.35
 	humanoid.CameraOffset = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-1, 1), rng:NextNumber(-1, 1)) * amplitude
 end
 
@@ -868,6 +886,7 @@ function Disaster.start(biomeIndex: number)
 		bonusLabel = nil,
 		nextTick = 0,
 		locked = nil,
+		guide = nil,
 	}
 	local groundY = (minV and maxV) and maxV.Y or hrp.Position.Y - 3
 	s.groundY = groundY
@@ -905,6 +924,77 @@ function Disaster.start(biomeIndex: number)
 		TweenService:Create(sc, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
 			:Play()
 	end)
+
+	-- Where to go: a pillar of green light over the white line with the distance, and arrows on the ground ahead
+	do
+		local line = MapInfo.dangerLine()
+		local mid = Vector3.new(centerX, groundY, line.Z)
+		local pillar = Instance.new("Part")
+		pillar.Name = "SafeBeacon"
+		pillar.Anchored = true
+		pillar.CanCollide = false
+		pillar.CanQuery = false
+		pillar.CanTouch = false
+		pillar.CastShadow = false
+		pillar.Material = Enum.Material.Neon
+		pillar.Color = Color3.fromRGB(90, 255, 140)
+		pillar.Transparency = 0.55
+		pillar.Size = Vector3.new(8, 260, 8)
+		pillar.CFrame = CFrame.new(mid + Vector3.new(0, 130, 0))
+		pillar.Parent = folder
+		local band = pillar:Clone()
+		band.Name = "SafeLine"
+		band.Size = Vector3.new(s.trackMaxX - s.trackMinX + 40, 0.3, 5)
+		band.CFrame = CFrame.new(mid + Vector3.new(0, 0.3, 0))
+		band.Transparency = 0.35
+		band.Parent = folder
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.fromOffset(260, 70)
+		bb.AlwaysOnTop = true
+		bb.LightInfluence = 0
+		bb.StudsOffsetWorldSpace = Vector3.new(0, -100, 0)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Size = UDim2.fromScale(1, 1)
+		l.Font = Enum.Font.FredokaOne
+		l.TextScaled = true
+		l.TextColor3 = Color3.fromRGB(120, 255, 150)
+		l.Text = "SAFE ZONE"
+		local st = Instance.new("UIStroke")
+		st.Thickness = 3
+		st.Parent = l
+		l.Parent = bb
+		bb.Parent = pillar
+		local chevrons = {}
+		for i = 1, 3 do
+			local c = Instance.new("Part")
+			c.Name = "Arrow"
+			c.Anchored = true
+			c.CanCollide = false
+			c.CanQuery = false
+			c.CanTouch = false
+			c.CastShadow = false
+			c.Transparency = 1
+			c.Size = Vector3.new(6, 0.2, 6)
+			local sg = Instance.new("SurfaceGui")
+			sg.Face = Enum.NormalId.Top
+			sg.LightInfluence = 0
+			sg.AlwaysOnTop = false
+			local t = Instance.new("TextLabel")
+			t.BackgroundTransparency = 1
+			t.Size = UDim2.fromScale(1, 1)
+			t.Font = Enum.Font.GothamBlack
+			t.TextScaled = true
+			t.Text = "^"
+			t.TextColor3 = Color3.fromRGB(120, 255, 150)
+			t.TextTransparency = 0.15 + i * 0.15
+			t.Parent = sg
+			sg.Parent = c
+			c.Parent = folder
+			table.insert(chevrons, c)
+		end
+		s.guide = { label = l, chevrons = chevrons }
+	end
 
 	Sfx.startChase()
 
@@ -965,7 +1055,7 @@ function Disaster.start(biomeIndex: number)
 			local k = (os.clock() - t0) / RISE
 			local e = TweenService:GetValue(k, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 			s.wall:PivotTo(s.wallCF - Vector3.new(0, 100 * (1 - e), 0))
-			cam.CFrame = shot * CFrame.new(rng:NextNumber(-1, 1) * 0.6, rng:NextNumber(-1, 1) * 0.6, 0)
+			cam.CFrame = shot * CFrame.new(rng:NextNumber(-1, 1) * 0.3, rng:NextNumber(-1, 1) * 0.3, 0)
 			if rng:NextNumber() < 0.25 then
 				dust(
 					s,

@@ -14,6 +14,8 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimalFactory = require(Shared.AnimalFactory)
 local Config = require(Shared.Config)
+local CreatureAnimator = require(Shared.CreatureAnimator)
+local CreatureProfiles = require(Shared.CreatureProfiles)
 
 local MapInfo = require(Shared.MapInfo)
 
@@ -76,6 +78,10 @@ function AnimalVisuals.animationId(animalId: string, kind: string): string?
 	return id
 end
 
+-- the reference pack's animals: moved in code (Shared/CreatureAnimator), stepped while near the camera
+local procedural: { [Model]: any } = setmetatable({}, { __mode = "k" }) :: any
+local PROCEDURAL_RANGE = 280
+
 function AnimalVisuals.play(model: Model, kind: string)
 	local entry = tracks[model]
 	if not entry then
@@ -88,6 +94,16 @@ function AnimalVisuals.play(model: Model, kind: string)
 	entry.current = kind
 	local animalId = model:GetAttribute("AnimalId")
 	if not animalId then
+		return
+	end
+	local profile = CreatureProfiles[animalId]
+	if profile then
+		local creature = procedural[model]
+		if not creature then
+			creature = CreatureAnimator.new(model, profile)
+			procedural[model] = creature
+		end
+		creature:SetState(kind)
 		return
 	end
 	local track = entry[kind]
@@ -394,7 +410,22 @@ local function playIdle(instance: Instance)
 	end
 end
 
+local function stepProcedural(dt: number)
+	local cam = workspace.CurrentCamera
+	local eye = if cam then cam.CFrame.Position else Vector3.zero
+	for model, creature in procedural do
+		if not model.Parent then
+			procedural[model] = nil
+			continue
+		end
+		if (model:GetPivot().Position - eye).Magnitude < PROCEDURAL_RANGE then
+			creature:Step(dt)
+		end
+	end
+end
+
 function AnimalVisuals.init()
+	RunService.RenderStepped:Connect(stepProcedural)
 	watchTag("WildAnimal", addWildAnimal)
 	watchTag("CarriedAnimal", playIdle)
 	watchTag("BaseAnimal", addBaseAnimal)

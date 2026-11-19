@@ -69,8 +69,9 @@ The map already exists. It looks like a mining / training simulator:
 - `Workspace.Bases` (BaseLvl1..10 + BaseLayout), `Workspace.Levels` (Level1_Grassy_Meadows ... Level6_Candyland)
 - `Workspace.Treadmills` (Treadmill1..10), `Workspace.Spawn_elements` (Update_board, Free_item_section,
   Weight_stand, Speed_stand, Leaderboards, Danger_line, ...)
-- `ReplicatedStorage.Assets` (not Lync-managed, saved in the .rbxl): `Animals/<Id>` (30 pack models, each with an
-  `Animations` ObjectValue of KeyframeSequences) and `Treadmills/BasicTreadmill`. Source files: `../assets/*.rbxm`.
+- `ReplicatedStorage.Assets` (not Lync-managed, saved in the .rbxl): `Animals/<Id>` (48 animals, 8 per biome: 30 pack
+  models with uploaded clip animations, plus 18 from the reference's AnimalPack that `Shared/CreatureAnimator` moves
+  in code from `Shared/CreatureProfiles`) and `Treadmills/BasicTreadmill`. Source files: `../assets/*.rbxm`.
   Also `TreadmillTiers/<Model>` (the 16 tier treadmills) and `RefUI` (PlotUpgrade / TreadmillUpgrade sign models and
   the AreaTitle banner frame), imported from the reference place `[NEW] Feed and Rob Animals.rbxl`.
 - Progression (speed points -> walk speed curve, treadmill/base tiers and prices) is copied from that reference place
@@ -88,8 +89,9 @@ The map already exists. It looks like a mining / training simulator:
   which fill holes where decorations with collisions off stood in for floor (Candyland). Parts max out at 2048
   studs, so long pieces are split. `Workspace.SAFD_EdgeFloors` are the older 140-wide side floors.
 - Map props are unions (2026-11-19): every prop up to 60 studs across in `Workspace.Levels.*` and
-  `Non_functional_spawn_assets` was unioned from its bricks (UsePartColor off, so colours stay). Solid if at least
-  4 tall and 2.5 wide, otherwise walk-through; pathway decor is never solid. Workspace went 125k -> 11k parts.
+  `Non_functional_spawn_assets` was unioned from its bricks (UsePartColor off, so colours stay), split per brick into
+  a solid union and a walk-through `*_Decor` union: thin bricks (grass blades, stems) and small bricks by the ground
+  (pebbles, tufts) are walk-through; pathway decor is never solid. Workspace went 125k -> 13k parts.
   Bricks with see-through parts or children were left as they were. The original bricks are in
   `../Revanoire - stud mining commission - resized.rbxl` (and Roblox version history). Don't rely on Studio undo for
   `UnionAsync` work: it yields mid-recording and undo only half-reverts it.

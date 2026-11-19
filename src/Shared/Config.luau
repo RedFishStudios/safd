@@ -47,7 +47,7 @@ Config.RollerInterval = { 2.6, 3.8 } -- seconds between rolling hazards that cro
 Config.FlyerInterval = { 2.6, 3.8 } -- wait after a head-height flyer (slide under it) before the next crossing
 Config.MaxTelegraphs = 6 -- never more than this many red target circles at once
 Config.SpectacleInterval = { 0.18, 0.35 } -- background debris tumbling down the hills (harmless)
-Config.TelegraphTime = 1.1 -- red circle fill time before a projectile lands
+Config.TelegraphTime = 1.4 -- red circle fill time before a projectile lands (time to see it and get out of the way)
 Config.HazardHitSlow = 2 -- seconds slowed when hit by a projectile / roller
 -- Disaster music (Creator Store, APM Music, free for any experience). "Race to the Artifact (A)": starts
 -- straight away with staccato strings, choir and huge percussion. Preloaded at join so it starts instantly.
@@ -77,7 +77,7 @@ Config.AnimalFacingFlip = false
 -- UI pack hooks -------------------------------------------------------------------------------------------------
 Config.SellValueSeconds = 20 -- selling an animal pays this many seconds of its income
 Config.IndexRewardSeconds = 120 -- Index "Claim!" pays this many seconds of the animal's income...
-Config.IndexRewardSpeed = { 1, 2, 4, 7, 12 } -- ...plus speed by rarity
+Config.IndexRewardSpeed = { 1, 2, 4, 7, 12, 20, 35, 60, 100 } -- ...plus speed by rarity
 Config.FreeItemSpeed = 100 -- "Like + join the group" free reward (once per player)
 Config.GroupId = 0 -- set to your group id to require membership for the free item
 -- Trails bought with in-game money (Trails Shop). Multiplier applies to the speed points the treadmill gives.
@@ -115,19 +115,28 @@ Config.Admins = { 418337702 }
 Config.DataStoreName = "SAFD_PlayerData_v1"
 Config.AutosaveInterval = 60
 
--- Rarities (index 1..5, lowest to highest) -----------------------------------------------------------------------
+-- Rarities, from the reference game ("[NEW] Feed and Rob Animals", Config/Pets): names, colours and spawn weights.
+-- Each biome's rarities slide up the ladder (Config.Biomes[*].Rarities), and income goes x1, x2, x5, x10, x20, x50 ...
+-- from the biome's lowest rarity (RarityIncomeSteps), like the reference.
 Config.Rarities = {
-	{ Name = "Common", Color = Color3.fromRGB(200, 200, 200), Size = 1, Income = 1, Weight = 50 },
-	{ Name = "Uncommon", Color = Color3.fromRGB(85, 220, 95), Size = 1.2, Income = 3, Weight = 25 },
-	{ Name = "Rare", Color = Color3.fromRGB(60, 150, 255), Size = 1.45, Income = 8, Weight = 14 },
-	{ Name = "Epic", Color = Color3.fromRGB(180, 80, 255), Size = 1.85, Income = 20, Weight = 8 },
-	{ Name = "Legendary", Color = Color3.fromRGB(255, 190, 40), Size = 2.6, Income = 50, Weight = 1 },
+	{ Name = "Common", Color = Color3.fromRGB(200, 200, 200), Size = 1, Weight = 50 },
+	{ Name = "Uncommon", Color = Color3.fromRGB(90, 220, 90), Size = 1.12, Weight = 30 },
+	{ Name = "Rare", Color = Color3.fromRGB(70, 150, 255), Size = 1.25, Weight = 15 },
+	{ Name = "Epic", Color = Color3.fromRGB(180, 80, 255), Size = 1.4, Weight = 7 },
+	{ Name = "Legendary", Color = Color3.fromRGB(255, 190, 40), Size = 1.6, Weight = 3 },
+	{ Name = "Mythic", Color = Color3.fromRGB(255, 70, 110), Size = 1.85, Weight = 1.2 },
+	{ Name = "Cosmic", Color = Color3.fromRGB(120, 255, 240), Size = 2.15, Weight = 0.5 },
+	{ Name = "Secret", Color = Color3.fromRGB(60, 60, 70), Size = 2.5, Weight = 0.15 },
+	{ Name = "Eternal", Color = Color3.fromRGB(255, 255, 255), Size = 3, Weight = 0.05 },
 }
+Config.RarityIncomeSteps = { 1, 2, 5, 10, 20, 50, 100, 200, 500 }
+Config.FarRarity = 5 -- Legendary and up: only in the far 40% of a biome, and one out at a time
 -- How tall an animal stands: small in the first biome, bigger in every biome after it, and bigger again by rarity
--- (a Grassy Meadows chicken ~3.5 studs, a Candyland legendary ~26; the player is ~5). Config.animalHeight below.
-Config.BiomeAnimalHeight = { 3.5, 4.5, 5.5, 7, 8.5, 10 }
+-- (a Grassy Meadows chicken ~5 studs, the player's height; a Candyland Eternal ~45). Config.animalHeight below.
+Config.BiomeAnimalHeight = { 5, 6.25, 7.5, 9, 10.5, 12 }
 
--- Biomes, ordered from nearest to the bases to furthest. Animals are listed Common -> Legendary.
+-- Biomes, ordered from nearest to the bases to furthest. 8 animals each, lowest rarity first; Rarities[i] is the
+-- rarity (index into Config.Rarities) of Animals[i].
 -- Model names must match the animal models inside ReplicatedStorage.Assets.
 Config.Biomes = {
 	{
@@ -140,7 +149,8 @@ Config.Biomes = {
 		IncomeMultiplier = 1,
 		WallMaterial = Enum.Material.Grass,
 		WallColor = Color3.fromRGB(80, 160, 70),
-		Animals = { "Chicken", "Bunny", "Horse", "Griffin", "Pegasus" },
+		Animals = { "Chicken", "Pig", "Bunny", "Cow", "Horse", "GoldenSwan", "Griffin", "Pegasus" },
+		Rarities = { 1, 1, 2, 2, 3, 4, 5, 6 },
 	},
 	{
 		Name = "Snowy Tundra",
@@ -152,7 +162,8 @@ Config.Biomes = {
 		IncomeMultiplier = 2.5,
 		WallMaterial = Enum.Material.Snow,
 		WallColor = Color3.fromRGB(230, 240, 255),
-		Animals = { "Puffin", "Yak", "PolarBear", "Mammoth", "Fenrir" },
+		Animals = { "Puffin", "ArcticHare", "Yak", "SnowyOwl", "PolarBear", "Mammoth", "Fenrir", "IceDragon" },
+		Rarities = { 1, 2, 2, 3, 4, 5, 6, 7 },
 	},
 	{
 		Name = "Sandy Dunes",
@@ -164,7 +175,8 @@ Config.Biomes = {
 		IncomeMultiplier = 6,
 		WallMaterial = Enum.Material.Sand,
 		WallColor = Color3.fromRGB(225, 195, 135),
-		Animals = { "Meerkat", "FennecFox", "Cobra", "Manticore", "Sphinx" },
+		Animals = { "Meerkat", "Jerboa", "FennecFox", "DesertLizard", "Cobra", "Camel", "Manticore", "Sphinx" },
+		Rarities = { 2, 2, 3, 3, 4, 5, 6, 7 },
 	},
 	{
 		Name = "Fiery Hellscape",
@@ -176,7 +188,8 @@ Config.Biomes = {
 		IncomeMultiplier = 15,
 		WallMaterial = Enum.Material.CrackedLava,
 		WallColor = Color3.fromRGB(255, 95, 35),
-		Animals = { "Salamander", "Hellhound", "Cerberus", "Dragon", "Phoenix" },
+		Animals = { "Salamander", "AshToad", "Hellhound", "LavaBeetle", "Cerberus", "MagmaCrab", "Phoenix", "Dragon" },
+		Rarities = { 2, 3, 3, 4, 5, 6, 7, 8 },
 	},
 	{
 		Name = "Toxic Wasteland",
@@ -188,7 +201,17 @@ Config.Biomes = {
 		IncomeMultiplier = 35,
 		WallMaterial = Enum.Material.Mud,
 		WallColor = Color3.fromRGB(120, 200, 40),
-		Animals = { "Toad", "Beetle", "GiantSpider", "Chupacabra", "Hydra" },
+		Animals = {
+			"Toad",
+			"Beetle",
+			"ForestSlug",
+			"MushroomSnail",
+			"GiantSpider",
+			"Chupacabra",
+			"MyceliumGolem",
+			"Hydra",
+		},
+		Rarities = { 3, 3, 4, 4, 5, 6, 7, 8 },
 	},
 	{
 		Name = "Candyland",
@@ -200,7 +223,8 @@ Config.Biomes = {
 		IncomeMultiplier = 80,
 		WallMaterial = Enum.Material.SmoothPlastic,
 		WallColor = Color3.fromRGB(255, 140, 205),
-		Animals = { "Hamster", "Axolotl", "Flamingo", "Unicorn", "Qilin" },
+		Animals = { "Hamster", "Axolotl", "CloudLamb", "Flamingo", "MoonRabbit", "Unicorn", "Qilin", "StarbornChimera" },
+		Rarities = { 3, 4, 4, 5, 6, 7, 8, 9 },
 	},
 }
 
@@ -251,6 +275,20 @@ local DISPLAY_NAMES = {
 	FennecFox = "Fennec Fox",
 	GiantSpider = "Giant Spider",
 	Phoenix = "Fire Phoenix",
+	GoldenSwan = "Golden Swan",
+	ArcticHare = "Arctic Hare",
+	SnowyOwl = "Snowy Owl",
+	IceDragon = "Ice Dragon",
+	DesertLizard = "Desert Lizard",
+	AshToad = "Ash Toad",
+	LavaBeetle = "Lava Beetle",
+	MagmaCrab = "Magma Crab",
+	ForestSlug = "Forest Slug",
+	MushroomSnail = "Mushroom Snail",
+	MyceliumGolem = "Mycelium Golem",
+	CloudLamb = "Cloud Lamb",
+	MoonRabbit = "Moon Rabbit",
+	StarbornChimera = "Starborn Chimera",
 }
 
 -- Uploaded animation ids (owned by the experience owner), used in Studio and live servers.
@@ -263,6 +301,8 @@ local TWO_LEGS = anim(128488789733107, 131220039691914) -- Hamster rig
 local QUAD = anim(76910213934059, 96372237104795) -- Meerkat rig (Animal Pack 5.0 quadrupeds)
 local LEGS4 = anim(78325691204179, 111773581225310) -- Cerberus rig
 local BIRD = anim(116801412086095, 135645695133496) -- Flamingo rig
+-- (the 18 animals from the reference's animal pack have no clips: Shared/CreatureAnimator moves them from their
+-- profiles, Shared/CreatureProfiles)
 Config.AnimationIds = {
 	-- Grassy Meadows
 	Chicken = TWO_LEGS,
@@ -305,14 +345,20 @@ Config.AnimationIds = {
 -- Derived: Config.Animals[id] = { Id, Name, Biome, Rarity, Income } ---------------------------------------------
 Config.Animals = {}
 for biomeIndex, biome in Config.Biomes do
-	for rarityIndex, id in biome.Animals do
+	local lowest = math.huge
+	for _, r in biome.Rarities do
+		lowest = math.min(lowest, r)
+	end
+	for slot, id in biome.Animals do
+		local rarity = biome.Rarities[slot]
 		Config.Animals[id] = {
 			Id = id,
 			Name = DISPLAY_NAMES[id] or id,
 			Biome = biomeIndex,
-			Rarity = rarityIndex,
-			Income = Config.Rarities[rarityIndex].Income * biome.IncomeMultiplier,
-			Height = Config.BiomeAnimalHeight[biomeIndex] * Config.Rarities[rarityIndex].Size,
+			Slot = slot,
+			Rarity = rarity,
+			Income = biome.IncomeMultiplier * Config.RarityIncomeSteps[rarity - lowest + 1],
+			Height = Config.BiomeAnimalHeight[biomeIndex] * Config.Rarities[rarity].Size,
 		}
 	end
 end

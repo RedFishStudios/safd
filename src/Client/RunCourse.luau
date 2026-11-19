@@ -8,6 +8,14 @@
 --     onto another rock. A x5 ring hangs on the cable.
 --   * Launch pads: glowing pads fling you up and forward; a x3 ring floats at the top of the arc.
 --   * Slalom: x2 rings weaving across the path.
+--   * Chute: walk up a ramp to a high platform and shoot down a long slide, fast, to a x3 ring at the bottom.
+--   * Bounce: a mud pit across the path (wading through it slows you right down) with bouncy mushrooms over it:
+--     bounce across to keep your speed (x3 rings in the air).
+--   * High road: a rock staircase up onto a narrow ridge over the path, x5 at its end; the low road only has a x2.
+--   * Speed strips: glowing arrows on the ground that give you a burst of speed.
+--   * Gates: a wall with three doors. x2 is open, x3 has a hurdle in it, x5 is behind a block you can only double jump.
+-- Signs over every choice show what each way pays, so you can decide whether to risk it; x5 rings have a beam of
+-- light over them so you can see them coming from far off.
 -- Multiplier rings (only during a run home) multiply the bonus your animals pay when you get them home
 -- (Server/AnimalService; the counting-up cutscene: Client/RunReward). Collecting one tells the server (Net.RunRing).
 
@@ -21,6 +29,7 @@ local MapInfo = require(Shared.MapInfo)
 local Net = require(Shared.Net)
 
 local ChaseFx = require(script.Parent.ChaseFx)
+local Movement = require(script.Parent.Movement)
 
 local player = Players.LocalPlayer
 local rng = Random.new()
@@ -51,12 +60,16 @@ local THEMES = {
 type Ring = { pos: Vector3, value: number, model: Model, taken: boolean }
 type Zip = { a: Vector3, b: Vector3, cable: BasePart }
 type Pad = { cf: CFrame, size: Vector3, next: number }
+-- an area that does something while you stand in it: "Chute" (speed), "Mud" (slow), "Strip" (speed burst),
+-- "Bounce" (a mushroom: up you go)
+type Zone = { kind: string, cf: CFrame, size: Vector3, next: number, dir: Vector3 }
 
 export type Course = {
 	folder: Folder,
 	rings: { Ring },
 	zips: { Zip },
 	pads: { Pad },
+	zones: { Zone },
 	riding: { zip: Zip, t: number, handle: BasePart, whirr: Sound? }?,
 	zipCooldown: number,
 	toBase: Vector3,
@@ -101,7 +114,7 @@ local function ring(c: Course, pos: Vector3, value: number)
 	local mesh = Instance.new("SpecialMesh")
 	mesh.MeshType = Enum.MeshType.FileMesh
 	mesh.MeshId = RING_MESH
-	mesh.Scale = Vector3.new(3.2, 3.2, 1.6)
+	mesh.Scale = Vector3.new(4, 4, 1.8)
 	mesh.Parent = hoop
 	hoop.Parent = m
 	local bb = Instance.new("BillboardGui")
@@ -123,6 +136,22 @@ local function ring(c: Course, pos: Vector3, value: number)
 	st.Parent = t
 	t.Parent = bb
 	bb.Parent = hoop
+	if value >= 5 then
+		-- a beam of light, so you can see it (and decide to go for it) from far off
+		local beam = Instance.new("Part")
+		beam.Name = "Beam"
+		beam.Anchored = true
+		beam.CanCollide = false
+		beam.CanQuery = false
+		beam.CanTouch = false
+		beam.CastShadow = false
+		beam.Material = Enum.Material.Neon
+		beam.Color = color
+		beam.Transparency = 0.6
+		beam.Size = Vector3.new(1.2, 80, 1.2)
+		beam.CFrame = CFrame.new(pos + Vector3.new(0, 44, 0))
+		beam.Parent = m
+	end
 	m.Parent = c.folder
 	-- a slow spin and bob
 	local spin = TweenService:Create(
@@ -132,6 +161,52 @@ local function ring(c: Course, pos: Vector3, value: number)
 	)
 	spin:Play()
 	table.insert(c.rings, { pos = pos, value = value, model = m, taken = false })
+end
+
+-- a floating sign over a choice ("x5 RISKY!")
+local function sign(c: Course, pos: Vector3, text: string, color: Color3)
+	local a = Instance.new("Part")
+	a.Anchored = true
+	a.CanCollide = false
+	a.CanQuery = false
+	a.CanTouch = false
+	a.Transparency = 1
+	a.Size = Vector3.one
+	a.CFrame = CFrame.new(pos)
+	a.Parent = c.folder
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(200, 60)
+	bb.MaxDistance = 260
+	bb.LightInfluence = 0
+	local t = Instance.new("TextLabel")
+	t.BackgroundTransparency = 1
+	t.Size = UDim2.fromScale(1, 1)
+	t.Font = Enum.Font.FredokaOne
+	t.TextScaled = true
+	t.Text = text
+	t.TextColor3 = color
+	local st = Instance.new("UIStroke")
+	st.Thickness = 3
+	st.Parent = t
+	t.Parent = bb
+	bb.Parent = a
+end
+
+local function zone(c: Course, kind: string, cf: CFrame, size: Vector3, dir: Vector3?)
+	table.insert(c.zones, { kind = kind, cf = cf, size = size, next = 0, dir = dir or c.toBase })
+end
+
+local function plainPart(c: Course, props: { [string]: any }): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanTouch = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for k, v in props do
+		(p :: any)[k] = v
+	end
+	p.Parent = c.folder
+	return p
 end
 
 local function collect(c: Course, r: Ring)
@@ -319,6 +394,192 @@ local function slalom(c: Course, origin: Vector3, d: number, minX: number, maxX:
 	return 70
 end
 
+local function chute(c: Course, origin: Vector3, d: number, minX: number, maxX: number, g: number): number
+	local x = if rng:NextNumber() < 0.5 then minX + 16 else maxX - 16
+	local theme = themeAt(at(c, origin, d, x, g))
+	local H, rampL, topL, slideL = 14, 30, 10, 85
+	local z0 = at(c, origin, d, x, g).Z
+	local dirZ = c.toBase.Z
+	-- the ramp up (a wedge rising towards the base)
+	local rampMid = Vector3.new(x, g + H / 2, z0 + dirZ * rampL / 2)
+	local wedge = Instance.new("WedgePart")
+	wedge.Anchored = true
+	wedge.CanTouch = false
+	wedge.Size = Vector3.new(10, H, rampL)
+	wedge.CFrame = CFrame.lookAt(rampMid, rampMid - c.toBase)
+	wedge.Material = Enum.Material.Rock
+	wedge.Color = theme.Rock
+	wedge.Parent = c.folder
+	-- the platform
+	local topZ = z0 + dirZ * (rampL + topL / 2)
+	block(c, Vector3.new(10, H, topL), CFrame.new(x, g + H / 2, topZ), theme, true)
+	-- the slide down
+	local a = Vector3.new(x, g + H, z0 + dirZ * (rampL + topL))
+	local b = Vector3.new(x, g + 0.5, z0 + dirZ * (rampL + topL + slideL))
+	local mid = (a + b) / 2
+	local slide = plainPart(c, {
+		Name = "Chute",
+		Size = Vector3.new(8, 1, (b - a).Magnitude),
+		CFrame = CFrame.lookAt(mid, b) * CFrame.new(0, -0.5, 0),
+		Material = Enum.Material.Glass,
+		Color = Color3.fromRGB(80, 200, 255),
+		Transparency = 0.2,
+	})
+	for _, side in { -1, 1 } do
+		plainPart(c, {
+			Name = "Rail",
+			Size = Vector3.new(0.6, 2.4, (b - a).Magnitude),
+			CFrame = CFrame.lookAt(mid, b) * CFrame.new(side * 4.3, 0.7, 0),
+			Material = Enum.Material.SmoothPlastic,
+			Color = Color3.fromRGB(255, 255, 255),
+		})
+	end
+	zone(c, "Chute", slide.CFrame * CFrame.new(0, 2.5, 0), slide.Size + Vector3.new(0, 5, 0), (b - a).Unit)
+	ring(c, b + c.toBase * 6 + Vector3.new(0, 4, 0), 3)
+	sign(c, Vector3.new(x, g + 22, z0), "SLIDE x3", Color3.fromRGB(80, 200, 255))
+	return rampL + topL + slideL + 8
+end
+
+local function bounce(c: Course, origin: Vector3, d: number, minX: number, maxX: number, g: number): number
+	local theme = themeAt(at(c, origin, d, (minX + maxX) / 2, g))
+	local area = Config.PlayAreaX
+	local len = 60
+	local midZ = at(c, origin, d + len / 2, 0, 0).Z
+	-- the mud pit, wall to wall
+	local pit = plainPart(c, {
+		Name = "Mud",
+		Size = Vector3.new(area[2] - area[1], 0.4, len),
+		CFrame = CFrame.new((area[1] + area[2]) / 2, g + 0.15, midZ),
+		Material = Enum.Material.Mud,
+		Color = theme.Color:Lerp(Color3.fromRGB(70, 45, 25), 0.6),
+		CanCollide = false,
+	})
+	zone(c, "Mud", pit.CFrame * CFrame.new(0, 3, 0), pit.Size + Vector3.new(0, 6, 0))
+	-- mushrooms in two lanes
+	for lane = 1, 2 do
+		local x = minX + (maxX - minX) * (if lane == 1 then 0.3 else 0.7)
+		for i = 1, 3 do
+			local p = at(c, origin, d + len * (i - 0.5) / 3, x, g)
+			plainPart(c, {
+				Name = "MushroomStem",
+				Size = Vector3.new(1.5, 2, 1.5),
+				CFrame = CFrame.new(p.X, g + 1, p.Z),
+				Material = Enum.Material.SmoothPlastic,
+				Color = Color3.fromRGB(245, 235, 220),
+				CanCollide = false,
+			})
+			local cap = plainPart(c, {
+				Name = "Mushroom",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(1.2, 7, 7),
+				CFrame = CFrame.new(p.X, g + 2.4, p.Z) * CFrame.Angles(0, 0, math.pi / 2),
+				Material = Enum.Material.SmoothPlastic,
+				Color = if lane == 1 then Color3.fromRGB(255, 80, 120) else Color3.fromRGB(120, 255, 120),
+				CanCollide = false,
+			})
+			zone(c, "Bounce", CFrame.new(cap.Position + Vector3.new(0, 2.5, 0)), Vector3.new(7, 5, 7))
+			if i == 2 then
+				ring(c, Vector3.new(p.X, g + 15, p.Z), 3)
+			end
+		end
+	end
+	sign(c, at(c, origin, d - 6, (minX + maxX) / 2, g + 14), "BOUNCE! (mud is slow)", Color3.fromRGB(255, 120, 160))
+	return len + 6
+end
+
+local function highRoad(c: Course, origin: Vector3, d: number, minX: number, maxX: number, g: number): number
+	local x = if rng:NextNumber() < 0.5 then minX + 10 else maxX - 10
+	local theme = themeAt(at(c, origin, d, x, g))
+	local len = 80
+	for i = 1, 3 do
+		local p = at(c, origin, d + (i - 1) * 6, x, g)
+		block(c, Vector3.new(8, 4 * i, 6), CFrame.new(x, g + 2 * i, p.Z), theme, true)
+	end
+	local ridgeStart = d + 18
+	local mid = at(c, origin, ridgeStart + len / 2, x, g)
+	block(c, Vector3.new(4, 12, len), CFrame.new(x, g + 6, mid.Z), theme, true)
+	ring(c, at(c, origin, ridgeStart + len * 0.45, x, g + 16), 2)
+	ring(c, at(c, origin, ridgeStart + len - 4, x, g + 16), 5)
+	local lowX = (minX + maxX) / 2 + (if x < (minX + maxX) / 2 then 25 else -25)
+	ring(c, at(c, origin, ridgeStart + len / 2, lowX, g + 4), 2)
+	sign(c, at(c, origin, d - 4, x, g + 16), "HIGH ROAD x5 - RISKY!", Color3.fromRGB(255, 200, 40))
+	sign(c, at(c, origin, d - 4, lowX, g + 10), "SAFE x2", Color3.fromRGB(80, 255, 120))
+	return ridgeStart - d + len + 4
+end
+
+local function strips(c: Course, origin: Vector3, d: number, minX: number, maxX: number, g: number): number
+	local mid = (minX + maxX) / 2
+	for i = 0, 2 do
+		local x = mid + (i - 1) * 22
+		local p = at(c, origin, d + i * 18, x, g)
+		local strip = plainPart(c, {
+			Name = "SpeedStrip",
+			Size = Vector3.new(10, 0.3, 12),
+			CFrame = CFrame.lookAt(Vector3.new(x, g + 0.2, p.Z), Vector3.new(x, g + 0.2, p.Z) + c.toBase),
+			Material = Enum.Material.Neon,
+			Color = Color3.fromRGB(255, 220, 60),
+			CanCollide = false,
+		})
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Top
+		sg.LightInfluence = 0
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Size = UDim2.fromScale(1, 1)
+		l.Font = Enum.Font.GothamBlack
+		l.TextScaled = true
+		l.Text = "^^"
+		l.TextColor3 = Color3.fromRGB(255, 255, 255)
+		l.Parent = sg
+		sg.Parent = strip
+		zone(c, "Strip", strip.CFrame * CFrame.new(0, 3, 0), Vector3.new(10, 6, 12))
+	end
+	ring(c, at(c, origin, d + 60, mid, g + 4), 2)
+	return 64
+end
+
+local function gates(c: Course, origin: Vector3, d: number, minX: number, maxX: number, g: number): number
+	local theme = themeAt(at(c, origin, d, (minX + maxX) / 2, g))
+	local area = Config.PlayAreaX
+	local z = at(c, origin, d, 0, 0).Z
+	local h, depth, doorW = 18, 8, 14
+	local values = { 2, 3, 5 }
+	-- shuffle which door is which
+	for i = #values, 2, -1 do
+		local j = rng:NextInteger(1, i)
+		values[i], values[j] = values[j], values[i]
+	end
+	local doors = {}
+	for i = 1, 3 do
+		doors[i] = minX + (maxX - minX) * (i - 0.5) / 3
+	end
+	local edges = { area[1] }
+	for i = 1, 3 do
+		table.insert(edges, doors[i] - doorW / 2)
+		table.insert(edges, doors[i] + doorW / 2)
+	end
+	table.insert(edges, area[2])
+	for k = 1, #edges, 2 do
+		local a, b = edges[k], edges[k + 1]
+		if b - a > 0.5 then
+			block(c, Vector3.new(b - a, h, depth), CFrame.new((a + b) / 2, g + h / 2, z), theme)
+		end
+	end
+	for i = 1, 3 do
+		local v = values[i]
+		local x = doors[i]
+		if v == 3 then
+			block(c, Vector3.new(doorW, 3.2, 3), CFrame.new(x, g + 1.6, z), theme, true) -- a hurdle: jump it
+		elseif v == 5 then
+			block(c, Vector3.new(doorW, 9, 3), CFrame.new(x, g + 4.5, z), theme, true) -- only a double jump clears it
+		end
+		local text = if v == 5 then "x5 (double jump!)" elseif v == 3 then "x3 (jump)" else "x2"
+		sign(c, Vector3.new(x, g + h + 4, z), text, RING_COLORS[v])
+		ring(c, at(c, origin, d + 12, x, g + 4), v)
+	end
+	return depth + 14
+end
+
 -- the run -------------------------------------------------------------------------------------------------------
 
 -- origin: where you start (your position when the chase starts). Builds pieces from a little ahead of you to just
@@ -333,6 +594,7 @@ function RunCourse.build(parent: Instance, origin: Vector3, onRing: (number) -> 
 		rings = {},
 		zips = {},
 		pads = {},
+		zones = {},
 		riding = nil,
 		zipCooldown = 0,
 		toBase = toBase,
@@ -340,7 +602,7 @@ function RunCourse.build(parent: Instance, origin: Vector3, onRing: (number) -> 
 	}
 	local line = MapInfo.dangerLine()
 	local total = (line - origin):Dot(toBase)
-	local kinds = { "Blockade", "Split", "Zipline", "Pads", "Slalom" }
+	local kinds = { "Blockade", "Split", "Zipline", "Pads", "Slalom", "Chute", "Bounce", "HighRoad", "Strips", "Gates" }
 	local last = ""
 	local d = 55
 	while d < total - 45 do
@@ -368,6 +630,16 @@ function RunCourse.build(parent: Instance, origin: Vector3, onRing: (number) -> 
 			used = pads(c, origin, d, minX, maxX, g)
 		elseif kind == "Slalom" then
 			used = slalom(c, origin, d, minX, maxX, g)
+		elseif kind == "Chute" and total - d > 150 then
+			used = chute(c, origin, d, minX, maxX, g)
+		elseif kind == "Bounce" then
+			used = bounce(c, origin, d, minX, maxX, g)
+		elseif kind == "HighRoad" and total - d > 120 then
+			used = highRoad(c, origin, d, minX, maxX, g)
+		elseif kind == "Strips" then
+			used = strips(c, origin, d, minX, maxX, g)
+		elseif kind == "Gates" then
+			used = gates(c, origin, d, minX, maxX, g)
 		end
 		if used == 0 then
 			used = slalom(c, origin, d, minX, maxX, g)
@@ -448,6 +720,41 @@ function RunCourse.update(c: Course, hrp: BasePart, humanoid: Humanoid, dt: numb
 				ChaseFx.kick(10)
 				ChaseFx.pop("ZIPLINE!", Color3.fromRGB(255, 230, 120))
 				return
+			end
+		end
+	end
+	-- zones
+	for _, z in c.zones do
+		local l = z.cf:PointToObjectSpace(pos)
+		if math.abs(l.X) < z.size.X / 2 and math.abs(l.Y) < z.size.Y / 2 and math.abs(l.Z) < z.size.Z / 2 then
+			if z.kind == "Mud" then
+				Movement.slow(0.25)
+			elseif z.kind == "Chute" then
+				Movement.boost(2, 0.4)
+				if now >= z.next then
+					z.next = now + 3
+					ChaseFx.play("Whoosh", 1, 0.8)
+					ChaseFx.play("Zip", 0.8, 1.8)
+					ChaseFx.kick(10)
+					ChaseFx.pop("WHEEE!", Color3.fromRGB(80, 200, 255))
+				end
+				local v = hrp.AssemblyLinearVelocity
+				local along = Vector3.new(z.dir.X, 0, z.dir.Z).Unit
+				if Vector3.new(v.X, 0, v.Z):Dot(along) < 55 then
+					hrp.AssemblyLinearVelocity = Vector3.new(along.X * 55, v.Y, along.Z * 55)
+				end
+			elseif z.kind == "Strip" and now >= z.next then
+				z.next = now + 0.8
+				Movement.boost(1.6, 1.2)
+				ChaseFx.play("Boost", 0.8, 1.2)
+				ChaseFx.kick(8)
+			elseif z.kind == "Bounce" and now >= z.next and hrp.AssemblyLinearVelocity.Y < 5 then
+				z.next = now + 0.5
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+				hrp.AssemblyLinearVelocity = c.toBase * 32 + Vector3.new(0, 62, 0)
+				ChaseFx.play("Pop", 1, 0.7)
+				ChaseFx.play("Boost", 0.6, 1.4)
+				ChaseFx.kick(6)
 			end
 		end
 	end
