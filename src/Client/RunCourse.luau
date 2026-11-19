@@ -26,6 +26,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local MapInfo = require(Shared.MapInfo)
+local MapStyle = require(Shared.MapStyle)
 local Net = require(Shared.Net)
 
 local ChaseFx = require(script.Parent.ChaseFx)
@@ -646,6 +647,8 @@ function RunCourse.build(parent: Instance, origin: Vector3, onRing: (number) -> 
 		end
 		d += used + rng:NextNumber(28, 48)
 	end
+	-- (the map's Lego look: Plastic + "2022 Stud", not the realistic Rock / Ice / Mud ...)
+	MapStyle.applyAll(folder)
 	return c
 end
 

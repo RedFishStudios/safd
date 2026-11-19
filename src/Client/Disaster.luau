@@ -19,6 +19,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local MapInfo = require(Shared.MapInfo)
+local MapStyle = require(Shared.MapStyle)
 local Net = require(Shared.Net)
 
 local ChaseFx = require(script.Parent.ChaseFx)
@@ -81,6 +82,9 @@ type State = {
 	locked: { walk: boolean, jumpPower: number, jumpHeight: number }?,
 	guide: { label: TextLabel, chevrons: { BasePart } }?,
 	nextGhost: number,
+	restoreUi: (() -> ())?,
+	holdFor: number, -- seconds the wall waits after the cutscene (you were close to the biome's end)
+	holdUntil: number,
 }
 
 local state: State? = nil
@@ -778,6 +782,9 @@ local function update(s: State, dt: number)
 	-- (formed far back at the end of the biome, it surges in until it's close, then keeps the biome's pace)
 	local behind = (hrp.Position - s.wallCF.Position):Dot(s.toBase)
 	local speed = s.speed + math.max(0, behind - Config.WallCatchUpGap) * Config.WallCatchUpRate
+	if now < s.holdUntil then
+		speed = 0
+	end
 	s.wallCF += s.toBase * speed * dt
 	s.wall:PivotTo(s.wallCF)
 	local frontPlane = s.wallCF.Position + s.toBase * (WALL_THICKNESS / 2 + 4)
@@ -951,6 +958,10 @@ function Disaster.start(biomeIndex: number)
 		locked = nil,
 		guide = nil,
 		nextGhost = 0,
+		-- the run home: only the chase's own screen (no money, speed, shop, index, hotbar ...)
+		holdFor = 0,
+		holdUntil = 0,
+		restoreUi = ChaseFx.hideUi({ "DisasterGui", "SAFD_Rescue", "SAFD_Intro" }),
 	}
 	local groundY = (minV and maxV) and maxV.Y or hrp.Position.Y - 3
 	s.groundY = groundY
@@ -959,13 +970,15 @@ function Disaster.start(biomeIndex: number)
 	-- Config.WallStartDistance (the legendaries live out there).
 	local back = -toBase
 	local farZ = if minV and maxV then (if back.Z > 0 then maxV.Z else minV.Z) else hrp.Position.Z
-	local minBehind = hrp.Position - toBase * (Config.WallStartDistance + WALL_THICKNESS / 2)
-	local wallZ = if (farZ - hrp.Position.Z) * back.Z > (minBehind.Z - hrp.Position.Z) * back.Z
-		then farZ
-		else minBehind.Z
+	-- (always this biome's own far end, even when you're close to it: it used to start further back, inside the next
+	-- biome, which looked like the disaster was happening there. Close to the end, it waits a moment instead.)
+	local wallZ = farZ
+	local head = (hrp.Position.Z - farZ) * toBase.Z - WALL_THICKNESS / 2
+	s.holdFor = math.max(0, Config.WallStartDistance - head) / s.speed
 	local wallPos = Vector3.new(centerX, groundY + 40, wallZ)
 	s.wallCF = CFrame.lookAt(wallPos, wallPos + toBase)
 	s.wall = buildWall(s, biome, s.wallCF)
+	MapStyle.applyAll(s.wall)
 	s.wall:PivotTo(s.wallCF - Vector3.new(0, 100, 0)) -- still under the ground: the cutscene raises it
 	s.wall.Parent = folder
 	state = s
@@ -1154,6 +1167,7 @@ function Disaster.start(biomeIndex: number)
 		s.locked = nil
 		s.intro = false
 		s.gui.Enabled = true
+		s.holdUntil = os.clock() + s.holdFor
 		local now = os.clock()
 		s.nextProjectile = now + 1.2
 		s.nextRoller = now + 2.6
@@ -1185,6 +1199,9 @@ function Disaster.stop(lost: boolean)
 	end
 	RunCourse.destroy(s.course)
 	unghostOthers()
+	if s.restoreUi then
+		s.restoreUi()
+	end
 	-- Put the world back the way it was.
 	for item, original in s.fallen do
 		if item.Parent then

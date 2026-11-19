@@ -12,6 +12,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local MapStyle = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MapStyle"))
 
 local HUD = require(script.Parent.HUD)
 local Moves = require(script.Parent.Moves)
@@ -52,6 +53,7 @@ local function part(props: { [string]: any }): Part
 	for k, v in props do
 		(p :: any)[k] = v
 	end
+	MapStyle.apply(p) -- (the map's Lego look)
 	return p
 end
 

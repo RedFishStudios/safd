@@ -91,9 +91,13 @@ The map already exists. It looks like a mining / training simulator:
 - Map scenery is chunk unions (2026-11-19): every plain brick in `Workspace.Levels.*` and `Non_functional_spawn_assets`
   was merged per 64-stud cell into one solid union (PreciseConvexDecomposition) and one walk-through union, under each
   level's `Chunks.All` model (780 unions; one union per prop was 4,100 and made the map load slowly: every union is a
-  mesh download). Walk-through: the artists' small leaf models (fit in 6.5 studs, or at most 4 wide and 10 tall, or
-  flat), thin/tiny bricks and all pathway decor. The original bricks are in
+  mesh download). Walk-through: any of the artists' models that fits in 5.2 studs, is at most 4 wide and 10 tall, or is at most
+  3.2 tall (with everything inside it), thin bricks (<= 1.05 across) and tiny bricks, and all pathway decor. Pieces
+  that can't be merged (see-through, textured, meshes) are solid only when big (>= 12 tall, or >= 6 across and
+  >= 4 tall, or >= 7.5 tall): ice spikes, palms, cacti, spires, boulders, volcanoes. The original bricks are in
   `../Revanoire - stud mining commission - resized.rbxl` and Roblox version history. Don't rely on Studio undo for
   `UnionAsync` work: it yields mid-recording and undo only half-reverts it. `Workspace.StreamingMinRadius` is 160.
+- Runtime-built parts (run course, disaster wall, hazards, intro) use `Shared/MapStyle`: Plastic + the place's
+  "2022 Stud" MaterialVariant, like the map's bricks. Never leave Roblox's realistic materials on them.
 - Unused leftovers from the original map (`Ores`, `Treadmills`) were moved to `ServerStorage.SAFD_Unused`.
 - DataStore needs the place published (and Studio API access on); until then data is not saved.

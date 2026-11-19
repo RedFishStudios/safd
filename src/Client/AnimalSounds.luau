@@ -94,17 +94,18 @@ local CALL_OF = {
 -- (heard more: the biomes' animals are few and spread out, so with calls every 8-20 s within 90 studs you rarely heard
 -- one, 2026-11-19)
 -- (fewer again: "too many animal sounds", 2026-11-19)
-local WILD_EVERY = { 9, 18 } -- seconds between one wild animal's calls
-local BASE_EVERY = { 25, 50 } -- base animals call a lot less often
-local GAP = 2.2 -- at least this long between any two calls, so a crowd isn't a din
+-- (quieter and rarer again: "plays too much too often", 2026-11-19)
+local WILD_EVERY = { 30, 60 } -- seconds between one wild animal's calls
+local BASE_EVERY = { 90, 180 } -- base animals hardly ever
+local GAP = 8 -- at least this long between any two calls
 local RANGE = 170 -- animals further than this from the camera stay quiet
-local LOUDNESS = 3.4 -- x the call's own volume x the Animal Sounds slider (0.5 by default)
+local LOUDNESS = 1.4 -- x the call's own volume x the Animal Sounds slider (0.5 by default)
 
 local nextCall: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
 local lastAny = 0
 local rng = Random.new()
 
-local function call(model: Model, id: string)
+local function call(model: Model, id: string, pitch: number?, volume: number?)
 	local kind = CALL_OF[id]
 	local def = kind and CALLS[kind]
 	local part = model.PrimaryPart
@@ -115,8 +116,8 @@ local function call(model: Model, id: string)
 	local rarity = if info then info.Rarity else 1
 	local s = Instance.new("Sound")
 	s.SoundId = "rbxassetid://" .. def[1]
-	s.Volume = def[2] * LOUDNESS * (player:GetAttribute("AnimalVolume") or 0.5)
-	s.PlaybackSpeed = math.clamp(1.12 - (rarity - 1) * 0.08, 0.7, 1.2) * rng:NextNumber(0.94, 1.06)
+	s.Volume = def[2] * LOUDNESS * (volume or 1) * (player:GetAttribute("AnimalVolume") or 0.5)
+	s.PlaybackSpeed = math.clamp(1.12 - (rarity - 1) * 0.05, 0.7, 1.2) * rng:NextNumber(0.94, 1.06) * (pitch or 1)
 	s.RollOffMode = Enum.RollOffMode.InverseTapered
 	s.RollOffMinDistance = 25 + rarity * 8
 	s.RollOffMaxDistance = RANGE + 40
@@ -134,6 +135,11 @@ local function call(model: Model, id: string)
 	s.Ended:Once(function()
 		s:Destroy()
 	end)
+end
+
+-- one call from this animal, now (the intro: scared, high-pitched calls). pitch / volume multiply the usual ones.
+function AnimalSounds.call(model: Model, id: string, pitch: number?, volume: number?)
+	call(model, id, pitch, volume)
 end
 
 function AnimalSounds.init()

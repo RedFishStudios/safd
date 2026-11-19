@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimalFactory = require(Shared.AnimalFactory)
+local AnimalIcon = require(script.Parent.AnimalIcon)
 local Config = require(Shared.Config)
 local Net = require(Shared.Net)
 local Util = require(Shared.Util)
@@ -328,11 +329,126 @@ local function refreshAllItems()
 	setItems:Fire("Eggs", {})
 end
 
+-- The 1-9 hotbar: the pack shows a tool's TextureId, or its name if it has none. Animal tools get a picture of the
+-- animal (a 3D close-up, like the pickup card) with the count in the corner instead.
+local slotShown: { [number]: string } = {}
+local function refreshHotbarIcons()
+	local ai = allItems
+	local hotbar = ai and find(ai, "Container.Hotbar")
+	if not hotbar then
+		return
+	end
+	local list = {}
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if backpack then
+		for _, t in backpack:GetChildren() do
+			if t:IsA("Tool") then
+				table.insert(list, t)
+			end
+		end
+	end
+	local character = player.Character
+	local eq = character and character:FindFirstChildOfClass("Tool")
+	if eq then
+		table.insert(list, eq)
+	end
+	table.sort(list, function(a, b)
+		return (a:GetAttribute("HotbarOrder") or 0) < (b:GetAttribute("HotbarOrder") or 0)
+	end)
+	for i = 1, 9 do
+		local slot = hotbar:FindFirstChild("Slot" .. i)
+		if not slot then
+			continue
+		end
+		local tool = list[i]
+		local id = tool and tool:GetAttribute("AnimalId")
+		local icon = slot:FindFirstChild("ToolIcon")
+		local name = slot:FindFirstChild("ToolName")
+		if id and icon and icon:IsA("ImageLabel") then
+			icon.Visible = true
+			icon.Image = ""
+			if name and name:IsA("TextLabel") then
+				name.Text = ""
+			end
+			if slotShown[i] ~= id or not icon:FindFirstChild("AnimalViewport") then
+				slotShown[i] = id
+				local old = icon:FindFirstChild("AnimalViewport")
+				if old then
+					old:Destroy()
+				end
+				AnimalIcon.viewport(icon, id, true)
+			end
+			local count = slot:FindFirstChild("SAFD_Count") :: TextLabel?
+			if not count then
+				local c = Instance.new("TextLabel")
+				c.Name = "SAFD_Count"
+				c.BackgroundTransparency = 1
+				c.AnchorPoint = Vector2.new(1, 1)
+				c.Position = UDim2.fromScale(0.95, 0.97)
+				c.Size = UDim2.fromScale(0.6, 0.32)
+				c.Font = Enum.Font.FredokaOne
+				c.TextScaled = true
+				c.TextXAlignment = Enum.TextXAlignment.Right
+				c.TextColor3 = Color3.new(1, 1, 1)
+				c.ZIndex = icon.ZIndex + 3
+				local st = Instance.new("UIStroke")
+				st.Thickness = 2
+				st.Parent = c
+				c.Parent = slot
+				count = c
+			end
+			local n = tool:GetAttribute("Count") or 1
+			(count :: TextLabel).Text = if n > 1 then "x" .. n else ""
+		else
+			slotShown[i] = nil
+			if icon then
+				local old = icon:FindFirstChild("AnimalViewport")
+				if old then
+					old:Destroy()
+				end
+			end
+			local count = slot:FindFirstChild("SAFD_Count")
+			if count and count:IsA("TextLabel") then
+				count.Text = ""
+			end
+		end
+	end
+end
+
 local function setupAllItems()
 	allItems = gui("All items")
 	if not allItems then
 		return
 	end
+	-- (after the pack's own refresh, which runs on the same changes)
+	local function later()
+		task.delay(0.05, refreshHotbarIcons)
+	end
+	local function watch(container: Instance?)
+		if container then
+			container.ChildAdded:Connect(later)
+			container.ChildRemoved:Connect(later)
+		end
+	end
+	watch(player:FindFirstChildOfClass("Backpack"))
+	player.ChildAdded:Connect(function(c)
+		if c:IsA("Backpack") then
+			watch(c)
+			later()
+		end
+	end)
+	player.CharacterAdded:Connect(function(c)
+		watch(c)
+		later()
+	end)
+	watch(player.Character)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			refreshHotbarIcons() -- (counts change on the tools themselves)
+		end
+	end)
+	later()
 	local grid = find(allItems, "Container.Panel.Grid")
 	if grid then
 		-- Cards are rebuilt by the pack controller; give each one a 3D thumbnail.

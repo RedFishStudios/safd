@@ -132,6 +132,57 @@ function ChaseFx.releaseCamera()
 	cameraBusy = false
 end
 
+-- Hide every other screen (the HUD: money, speed, shop, index, the hotbar, windows ...) and Roblox's own UI, for a
+-- cutscene or the run home. keep: names of ScreenGuis to leave alone. Returns the function that puts it all back
+-- exactly as it was (only what was showing comes back on).
+function ChaseFx.hideUi(keep: { string }): () -> ()
+	local playerGui = player:WaitForChild("PlayerGui")
+	local hidden: { ScreenGui } = {}
+	local function hide(g: Instance)
+		if g:IsA("ScreenGui") and g.Enabled and not table.find(keep, g.Name) and g.Name ~= "SAFD_ChaseFx" then
+			g.Enabled = false
+			table.insert(hidden, g)
+		end
+	end
+	for _, g in playerGui:GetChildren() do
+		hide(g)
+	end
+	local watch = playerGui.ChildAdded:Connect(hide)
+	local StarterGui = game:GetService("StarterGui")
+	local core: { [Enum.CoreGuiType]: boolean } = {}
+	for _, kind in Enum.CoreGuiType:GetEnumItems() do
+		if kind ~= Enum.CoreGuiType.All then
+			local ok, on = pcall(function()
+				return StarterGui:GetCoreGuiEnabled(kind)
+			end)
+			if ok and on then
+				core[kind] = true
+				pcall(function()
+					StarterGui:SetCoreGuiEnabled(kind, false)
+				end)
+			end
+		end
+	end
+	local restored = false
+	return function()
+		if restored then
+			return
+		end
+		restored = true
+		watch:Disconnect()
+		for _, g in hidden do
+			if g.Parent then
+				g.Enabled = true
+			end
+		end
+		for kind in core do
+			pcall(function()
+				StarterGui:SetCoreGuiEnabled(kind, true)
+			end)
+		end
+	end
+end
+
 function ChaseFx.cameraBusy(): boolean
 	return cameraBusy
 end
