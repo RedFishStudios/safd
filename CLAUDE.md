@@ -97,6 +97,9 @@ The map already exists. It looks like a mining / training simulator:
   >= 4 tall, or >= 7.5 tall): ice spikes, palms, cacti, spires, boulders, volcanoes. The original bricks are in
   `../Revanoire - stud mining commission - resized.rbxl` and Roblox version history. Don't rely on Studio undo for
   `UnionAsync` work: it yields mid-recording and undo only half-reverts it. `Workspace.StreamingMinRadius` is 160.
+- Ground must stay solid: large pieces (20+ studs across) in the levels and spawn decor are solid except the
+  scenic `Plane*` backdrops (20+ tall) and the `Text` signs; invisible ones keep the original map's setting (the
+  biome side walls are solid). A rebuild once turned the spawn floor (227x535) off and players fell through.
 - Runtime-built parts (run course, disaster wall, hazards, intro) use `Shared/MapStyle`: Plastic + the place's
   "2022 Stud" MaterialVariant, like the map's bricks. Never leave Roblox's realistic materials on them.
 - Unused leftovers from the original map (`Ores`, `Treadmills`) were moved to `ServerStorage.SAFD_Unused`.
