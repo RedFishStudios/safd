@@ -149,7 +149,7 @@ Config.Biomes = {
 		IncomeMultiplier = 1,
 		WallMaterial = Enum.Material.Grass,
 		WallColor = Color3.fromRGB(80, 160, 70),
-		Animals = { "Chicken", "Pig", "Bunny", "Cow", "Horse", "GoldenSwan", "Griffin", "Pegasus" },
+		Animals = { "Chicken", "Corgi", "Bunny", "Goat", "Cow", "Horse", "Griffin", "Pegasus" },
 		Rarities = { 1, 1, 2, 2, 3, 4, 5, 6 },
 	},
 	{
@@ -162,7 +162,7 @@ Config.Biomes = {
 		IncomeMultiplier = 2.5,
 		WallMaterial = Enum.Material.Snow,
 		WallColor = Color3.fromRGB(230, 240, 255),
-		Animals = { "Puffin", "ArcticHare", "Yak", "SnowyOwl", "PolarBear", "Mammoth", "Fenrir", "IceDragon" },
+		Animals = { "Puffin", "Akita", "Yak", "Wolf", "PolarBear", "Tiger", "Mammoth", "Fenrir" },
 		Rarities = { 1, 2, 2, 3, 4, 5, 6, 7 },
 	},
 	{
@@ -175,7 +175,7 @@ Config.Biomes = {
 		IncomeMultiplier = 6,
 		WallMaterial = Enum.Material.Sand,
 		WallColor = Color3.fromRGB(225, 195, 135),
-		Animals = { "Meerkat", "Jerboa", "FennecFox", "DesertLizard", "Cobra", "Camel", "Manticore", "Sphinx" },
+		Animals = { "Meerkat", "Armadillo", "FennecFox", "Lizard", "Cobra", "Caracal", "Manticore", "Sphinx" },
 		Rarities = { 2, 2, 3, 3, 4, 5, 6, 7 },
 	},
 	{
@@ -188,7 +188,7 @@ Config.Biomes = {
 		IncomeMultiplier = 15,
 		WallMaterial = Enum.Material.CrackedLava,
 		WallColor = Color3.fromRGB(255, 95, 35),
-		Animals = { "Salamander", "AshToad", "Hellhound", "LavaBeetle", "Cerberus", "MagmaCrab", "Phoenix", "Dragon" },
+		Animals = { "Salamander", "Komodo", "Hellhound", "ShadowWolf", "Cerberus", "Cockatrice", "Phoenix", "Dragon" },
 		Rarities = { 2, 3, 3, 4, 5, 6, 7, 8 },
 	},
 	{
@@ -201,16 +201,7 @@ Config.Biomes = {
 		IncomeMultiplier = 35,
 		WallMaterial = Enum.Material.Mud,
 		WallColor = Color3.fromRGB(120, 200, 40),
-		Animals = {
-			"Toad",
-			"Beetle",
-			"ForestSlug",
-			"MushroomSnail",
-			"GiantSpider",
-			"Chupacabra",
-			"MyceliumGolem",
-			"Hydra",
-		},
+		Animals = { "Toad", "Newt", "Beetle", "Hyena", "GiantSpider", "Crocodile", "Chupacabra", "Hydra" },
 		Rarities = { 3, 3, 4, 4, 5, 6, 7, 8 },
 	},
 	{
@@ -223,7 +214,7 @@ Config.Biomes = {
 		IncomeMultiplier = 80,
 		WallMaterial = Enum.Material.SmoothPlastic,
 		WallColor = Color3.fromRGB(255, 140, 205),
-		Animals = { "Hamster", "Axolotl", "CloudLamb", "Flamingo", "MoonRabbit", "Unicorn", "Qilin", "StarbornChimera" },
+		Animals = { "Hamster", "Axolotl", "Toucan", "RedPanda", "Flamingo", "Unicorn", "Kitsune", "Qilin" },
 		Rarities = { 3, 4, 4, 5, 6, 7, 8, 9 },
 	},
 }
@@ -275,20 +266,9 @@ local DISPLAY_NAMES = {
 	FennecFox = "Fennec Fox",
 	GiantSpider = "Giant Spider",
 	Phoenix = "Fire Phoenix",
-	GoldenSwan = "Golden Swan",
-	ArcticHare = "Arctic Hare",
-	SnowyOwl = "Snowy Owl",
-	IceDragon = "Ice Dragon",
-	DesertLizard = "Desert Lizard",
-	AshToad = "Ash Toad",
-	LavaBeetle = "Lava Beetle",
-	MagmaCrab = "Magma Crab",
-	ForestSlug = "Forest Slug",
-	MushroomSnail = "Mushroom Snail",
-	MyceliumGolem = "Mycelium Golem",
-	CloudLamb = "Cloud Lamb",
-	MoonRabbit = "Moon Rabbit",
-	StarbornChimera = "Starborn Chimera",
+	Komodo = "Komodo Dragon",
+	ShadowWolf = "Shadow Wolf",
+	RedPanda = "Red Panda",
 }
 
 -- Uploaded animation ids (owned by the experience owner), used in Studio and live servers.
@@ -301,8 +281,7 @@ local TWO_LEGS = anim(128488789733107, 131220039691914) -- Hamster rig
 local QUAD = anim(76910213934059, 96372237104795) -- Meerkat rig (Animal Pack 5.0 quadrupeds)
 local LEGS4 = anim(78325691204179, 111773581225310) -- Cerberus rig
 local BIRD = anim(116801412086095, 135645695133496) -- Flamingo rig
--- (the 18 animals from the reference's animal pack have no clips: Shared/CreatureAnimator moves them from their
--- profiles, Shared/CreatureProfiles)
+-- (the animals added from the same animal bundle share a skeleton with one already here, so they use its clips)
 Config.AnimationIds = {
 	-- Grassy Meadows
 	Chicken = TWO_LEGS,
@@ -341,6 +320,31 @@ Config.AnimationIds = {
 	Unicorn = FOUR_LEGS,
 	Qilin = anim(100656739982577, 110997990188334),
 }
+-- the rest of the 8 per biome, from the same animal bundle: same bone names as the animal named, so its clips fit
+for id, like in
+	{
+		Corgi = "Meerkat",
+		Goat = "Mammoth",
+		Cow = "Meerkat",
+		Akita = "Meerkat",
+		Wolf = "Mammoth",
+		Tiger = "Unicorn",
+		Armadillo = "Meerkat",
+		Lizard = "Meerkat",
+		Caracal = "Mammoth",
+		Komodo = "Salamander",
+		ShadowWolf = "Hellhound",
+		Cockatrice = "Phoenix",
+		Newt = "Salamander",
+		Hyena = "Meerkat",
+		Crocodile = "Mammoth",
+		Toucan = "Flamingo",
+		RedPanda = "Meerkat",
+		Kitsune = "Meerkat",
+	}
+do
+	Config.AnimationIds[id] = Config.AnimationIds[like]
+end
 
 -- Derived: Config.Animals[id] = { Id, Name, Biome, Rarity, Income } ---------------------------------------------
 Config.Animals = {}

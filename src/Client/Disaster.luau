@@ -80,9 +80,67 @@ type State = {
 	nextTick: number,
 	locked: { walk: boolean, jumpPower: number, jumpHeight: number }?,
 	guide: { label: TextLabel, chevrons: { BasePart } }?,
+	nextGhost: number,
 }
 
 local state: State? = nil
+
+-- During your chase other players are hidden and you run straight through them (only on your screen: they still see
+-- each other). Re-applied every half second, so players who join or respawn mid-chase are hidden too.
+local ghosted: { [BasePart]: boolean } = {} -- part -> its CanCollide before
+local ghostedHumanoids: { [Humanoid]: Enum.HumanoidDisplayDistanceType } = {}
+local function ghostOthers()
+	for _, p in Players:GetPlayers() do
+		local c = p ~= player and p.Character
+		if not c then
+			continue
+		end
+		for _, d in c:GetDescendants() do
+			if d:IsA("BasePart") then
+				if ghosted[d] == nil then
+					ghosted[d] = d.CanCollide
+				end
+				d.LocalTransparencyModifier = 1
+				d.CanCollide = false
+			elseif d:IsA("Humanoid") and ghostedHumanoids[d] == nil then
+				ghostedHumanoids[d] = d.DisplayDistanceType
+				d.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+			elseif d:IsA("BillboardGui") or d:IsA("ParticleEmitter") or d:IsA("Trail") then
+				if d:GetAttribute("SAFD_GhostWas") == nil then
+					d:SetAttribute("SAFD_GhostWas", d.Enabled)
+				end
+				d.Enabled = false
+			end
+		end
+	end
+end
+local function unghostOthers()
+	for part, collide in ghosted do
+		if part.Parent then
+			part.LocalTransparencyModifier = 0
+			part.CanCollide = collide
+		end
+	end
+	table.clear(ghosted)
+	for h, kind in ghostedHumanoids do
+		if h.Parent then
+			h.DisplayDistanceType = kind
+		end
+	end
+	table.clear(ghostedHumanoids)
+	for _, p in Players:GetPlayers() do
+		local c = p ~= player and p.Character
+		if c then
+			for _, d in c:GetDescendants() do
+				local was = d:GetAttribute("SAFD_GhostWas")
+				if was ~= nil then
+					(d :: any).Enabled = was
+					d:SetAttribute("SAFD_GhostWas", nil)
+				end
+			end
+		end
+	end
+end
 local flash: (text: string, color: Color3) -> ()
 
 local function character(): (Model?, Humanoid?, BasePart?)
@@ -681,6 +739,10 @@ local function update(s: State, dt: number)
 	-- Past the white line: the wall holds still. The chase ends only when the server takes your animals in
 	-- (DisasterEnd). Ending it here on our own let a quick step over the line and back end the chase while you
 	-- still carried them, so the next pickup started no disaster.
+	if now >= s.nextGhost then
+		s.nextGhost = now + 0.5
+		ghostOthers()
+	end
 	if MapInfo.isSafe(hrp.Position) then
 		return
 	end
@@ -833,6 +895,7 @@ function Disaster.start(biomeIndex: number)
 	overlap.FilterDescendantsInstances = {}
 
 	local gui, runLabel, runScale, distanceLabel, slowLabel, edges = buildGui()
+	gui.Enabled = false -- (hidden during the cutscene: "RUN!" only once it is over)
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	local tint = Instance.new("ColorCorrectionEffect")
@@ -887,6 +950,7 @@ function Disaster.start(biomeIndex: number)
 		nextTick = 0,
 		locked = nil,
 		guide = nil,
+		nextGhost = 0,
 	}
 	local groundY = (minV and maxV) and maxV.Y or hrp.Position.Y - 3
 	s.groundY = groundY
@@ -1089,6 +1153,7 @@ function Disaster.start(biomeIndex: number)
 		humanoid.JumpHeight = s.locked.jumpHeight
 		s.locked = nil
 		s.intro = false
+		s.gui.Enabled = true
 		local now = os.clock()
 		s.nextProjectile = now + 1.2
 		s.nextRoller = now + 2.6
@@ -1120,6 +1185,7 @@ function Disaster.stop(lost: boolean)
 		Movement.locked = false
 	end
 	RunCourse.destroy(s.course)
+	unghostOthers()
 	-- Put the world back the way it was.
 	for item, original in s.fallen do
 		if item.Parent then

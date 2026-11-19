@@ -51,6 +51,25 @@ local function reconcile(data: any): any
 			data[key] = deepCopy(value)
 		end
 	end
+	-- animals that are no longer in the game (the roster changed) are dropped, so nothing breaks on them
+	for i = #data.Inventory, 1, -1 do
+		if not Config.Animals[data.Inventory[i]] then
+			table.remove(data.Inventory, i)
+		end
+	end
+	for i = #data.Placed, 1, -1 do
+		local entry = data.Placed[i]
+		if type(entry) ~= "table" or not Config.Animals[entry.Id] then
+			table.remove(data.Placed, i)
+		end
+	end
+	for _, map in { data.Discovered, data.IndexClaimed } do
+		for id in map do
+			if not Config.Animals[id] then
+				map[id] = nil
+			end
+		end
+	end
 	return data
 end
 
