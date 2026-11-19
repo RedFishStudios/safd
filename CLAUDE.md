@@ -30,12 +30,17 @@ Lync picks the script type from a directive on the **first line** of the file, n
 | `--@disabled`         | marks the script disabled     |
 
 - Use the `.luau` extension. To turn a folder into a script with children, put the code in `Init.luau` inside it.
+- Client entry scripts under `src/Client` (StarterPlayerScripts) must use `--@localscript`. A `--@script:client`
+  Script there runs twice (once in StarterPlayerScripts, once in the PlayerScripts copy).
 - Docs: https://iron-stag-games.github.io/lync/
 
 ## Workflow
 
 1. Run `lync serve` in this folder (port 34874). The **Lync** plugin in Studio connects to `localhost:34874`.
-   Port 34873, the default, was already in use by another Lync server on this machine.
+   Port 34873, the default, is used by a different project's Lync server (`Desktop\starducks`).
+   An empty port box in the plugin means 34873, which connects Studio to the WRONG project.
+   Lync adds and updates instances but does not remove stale ones. After a bad sync, delete any extras
+   in the three folders (for example via MCP `execute_luau`) before saving the place.
 2. Edit files in `src/`. They sync live into Studio.
 3. Use the Roblox Studio MCP (`execute_luau`, `search_game_tree`, `inspect_instance`, `start_stop_play`,
    `get_console_output`, `screen_capture`, ...) to inspect the map, playtest, and read output.
@@ -64,4 +69,22 @@ The map already exists. It looks like a mining / training simulator:
 - `Workspace.Bases` (BaseLvl1..10 + BaseLayout), `Workspace.Levels` (Level1_Grassy_Meadows ... Level6_Candyland)
 - `Workspace.Treadmills` (Treadmill1..10), `Workspace.Spawn_elements` (Update_board, Free_item_section,
   Weight_stand, Speed_stand, Leaderboards, Danger_line, ...)
-- Only existing code: `StarterCharacterScripts.LocalScript`, which sets WalkSpeed = 150 (a test leftover).
+- `ReplicatedStorage.Assets` (not Lync-managed, saved in the .rbxl): `Animals/<Id>` (30 pack models, each with an
+  `Animations` ObjectValue of KeyframeSequences) and `Treadmills/BasicTreadmill`. Source files: `../assets/*.rbxm`.
+  Also `TreadmillTiers/<Model>` (the 16 tier treadmills) and `RefUI` (PlotUpgrade / TreadmillUpgrade sign models and
+  the AreaTitle banner frame), imported from the reference place `[NEW] Feed and Rob Animals.rbxl`.
+- Progression (speed points -> walk speed curve, treadmill/base tiers and prices) is copied from that reference place
+  into `src/Shared/Progression.luau`.
+- At runtime the server moves `Workspace.Bases` templates/BaseLayout to ServerStorage and builds
+  `Workspace.PlayerBases.Base1..7`, plus `WildAnimals`, `BaseAnimals` and `ReplicatedStorage.MapInfo`/`Remotes`.
+  Each base is a wooden fence pen built in code like the reference's (BaseService `setBaseModel`): 5 in the row
+  facing the white line, 2 beside the row's ends facing inward. The BaseLvl models are no longer used.
+- In a Studio playtest, Ctrl + W/A/S/D triggers Studio shortcuts before the game sees them: Ctrl+A select all
+  (freezes Studio for seconds on this map; Studio's log shows `SelectAllComponentLog`), Ctrl+S save, Ctrl+D
+  duplicate (clones a selected character). No game code can block them; the published game is unaffected. Slide
+  also works on C, and in Studio a toast says so when Ctrl is pressed.
+- `Workspace.SAFD_Boundaries` (saved in the place): invisible walls around the whole play area (behind the bases,
+  both sides, the far end) and `SafetyFloor` pieces just under the biome floors (top 0.95 vs the floor's 1.0),
+  which fill holes where decorations with collisions off stood in for floor (Candyland). Parts max out at 2048
+  studs, so long pieces are split. `Workspace.SAFD_EdgeFloors` are the older 140-wide side floors.
+- DataStore needs the place published (and Studio API access on); until then data is not saved.

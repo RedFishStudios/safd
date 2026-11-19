@@ -1,9 +1,46 @@
---@script:client
+--@localscript
 -- Client entry point. Synced to StarterPlayer.StarterPlayerScripts.Client.Main by Lync.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+
+local Client = script.Parent
+local Movement = require(Client.Movement)
+local HUD = require(Client.HUD)
+local AnimalVisuals = require(Client.AnimalVisuals)
+local Treadmill = require(Client.Treadmill)
+local Disaster = require(Client.Disaster)
+local Hotbar = require(Client.Hotbar)
+local Moves = require(Client.Moves)
+local UIBridge = require(Client.UIBridge)
+local AdminPanel = require(Client.AdminPanel)
+local Sfx = require(Client.Sfx)
+local MoveFx = require(Client.MoveFx)
+local UpgradeSigns = require(Client.UpgradeSigns)
+local AreaBanner = require(Client.AreaBanner)
+local BaseMarkers = require(Client.BaseMarkers)
+local SpeedFx = require(Client.SpeedFx)
+local RewardFx = require(Client.RewardFx)
+local AnimalSounds = require(Client.AnimalSounds)
+
+Sfx.init()
+Movement.init()
+Moves.init()
+MoveFx.init()
+HUD.init()
+AnimalVisuals.init()
+Treadmill.init()
+Disaster.init()
+Hotbar.init()
+UIBridge.init()
+AdminPanel.init()
+UpgradeSigns.init()
+task.spawn(AreaBanner.init)
+task.spawn(BaseMarkers.init)
+task.spawn(SpeedFx.init)
+task.spawn(RewardFx.init)
+AnimalSounds.init()
 
 print(`[SAFD] Client started ({Config.GameName})`)
