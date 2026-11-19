@@ -1158,7 +1158,6 @@ function Disaster.start(biomeIndex: number)
 		s.nextProjectile = now + 1.2
 		s.nextRoller = now + 2.6
 		s.nextBarrage = now + 6
-		ChaseFx.pop("RUN!", Color3.fromRGB(255, 40, 40), true)
 		ChaseFx.play("Boost", 1, 0.9)
 		ChaseFx.kick(14)
 	end)

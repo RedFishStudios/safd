@@ -88,13 +88,12 @@ The map already exists. It looks like a mining / training simulator:
   both sides, the far end) and `SafetyFloor` pieces just under the biome floors (top 0.95 vs the floor's 1.0),
   which fill holes where decorations with collisions off stood in for floor (Candyland). Parts max out at 2048
   studs, so long pieces are split. `Workspace.SAFD_EdgeFloors` are the older 140-wide side floors.
-- Map props are unions (2026-11-19): every prop up to 60 studs across in `Workspace.Levels.*` and
-  `Non_functional_spawn_assets` was unioned from its bricks (UsePartColor off, so colours stay), split per brick into
-  a solid union and a walk-through `*_Decor` union: thin bricks (grass blades, stems) and small bricks by the ground
-  (pebbles, tufts), tiny bricks anywhere and any prop under 4 tall or 3 across are walk-through; pathway decor
-  is never solid. Solid unions use PreciseConvexDecomposition (it can only be set when the union is made). Workspace went 125k -> 13k parts.
-  Bricks with see-through parts or children were left as they were. The original bricks are in
-  `../Revanoire - stud mining commission - resized.rbxl` (and Roblox version history). Don't rely on Studio undo for
-  `UnionAsync` work: it yields mid-recording and undo only half-reverts it.
+- Map scenery is chunk unions (2026-11-19): every plain brick in `Workspace.Levels.*` and `Non_functional_spawn_assets`
+  was merged per 64-stud cell into one solid union (PreciseConvexDecomposition) and one walk-through union, under each
+  level's `Chunks.All` model (780 unions; one union per prop was 4,100 and made the map load slowly: every union is a
+  mesh download). Walk-through: the artists' small leaf models (fit in 6.5 studs, or at most 4 wide and 10 tall, or
+  flat), thin/tiny bricks and all pathway decor. The original bricks are in
+  `../Revanoire - stud mining commission - resized.rbxl` and Roblox version history. Don't rely on Studio undo for
+  `UnionAsync` work: it yields mid-recording and undo only half-reverts it. `Workspace.StreamingMinRadius` is 160.
 - Unused leftovers from the original map (`Ores`, `Treadmills`) were moved to `ServerStorage.SAFD_Unused`.
 - DataStore needs the place published (and Studio API access on); until then data is not saved.

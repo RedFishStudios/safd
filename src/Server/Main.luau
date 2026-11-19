@@ -42,6 +42,10 @@ local function onPlayerAdded(player: Player)
 	TrainingService.playerLoaded(player)
 	ShopService.playerLoaded(player)
 	player:SetAttribute("Loaded", true)
+	if not data.SeenIntro then
+		data.SeenIntro = true
+		player:SetAttribute("PlayIntro", true)
+	end
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)

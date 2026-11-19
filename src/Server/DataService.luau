@@ -27,6 +27,7 @@ local DEFAULT = {
 	TreadmillLevel = 1, -- treadmill tier (Shared/Progression.Treadmill)
 	BaseTier = 1, -- base tier (Shared/Progression.Base)
 	SpeedMultiplier = 1, -- Robux "double your speed"
+	SeenIntro = false, -- the opening cutscene plays once, on your first visit (Client/IntroCutscene)
 }
 
 type Profile = { Data: any, Key: string, CanSave: boolean, Saving: boolean }

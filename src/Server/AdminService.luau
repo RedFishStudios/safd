@@ -327,6 +327,19 @@ local TEXT: { TextCommand } = {
 		end,
 	},
 	{
+		Alias = "/intro",
+		Usage = "[player]",
+		About = "Play the opening cutscene again",
+		Args = 0,
+		Run = function(_, t)
+			t:SetAttribute("PlayIntro", false)
+			task.defer(function()
+				t:SetAttribute("PlayIntro", true)
+			end)
+			return `Playing the intro for {t.Name}`
+		end,
+	},
+	{
 		Alias = "/resetdata",
 		Usage = "[player]",
 		About = "Wipe their save and kick them, so they rejoin fresh",
