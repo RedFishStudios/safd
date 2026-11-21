@@ -3,6 +3,8 @@
 --   * a command line: type a command (the slash is optional) and press Run or Enter
 --   * every command: how to type it and what it does (click one and it's put on the command line)
 --   * a "Give Animal" tab above the window: pick an animal and "/give <animal> 1 " is put on the command line
+--   * an "Admins" tab (the owner only): make someone an admin by name, or take it away (/admin, /unadmin). Admins
+--     are saved (Server/AdminService), and someone made admin gets the panel straight away.
 -- The server checks and runs everything (Net.AdminAction) and answers with the usual toasts.
 
 local GuiService = game:GetService("GuiService")
@@ -148,7 +150,7 @@ local function scroller(parent: Instance, name: string, size: UDim2, pos: UDim2)
 	return s
 end
 
-local function build()
+local function build(): ScreenGui
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
 	screen.Name = "SAFD_Admin"
@@ -167,6 +169,7 @@ local function build()
 	toggle.Text = "👑"
 	toggle.TextScaled = true
 	toggle.Size = UDim2.fromOffset(44, 44)
+	toggle:SetAttribute("PixelOK", true) -- (sized like the HUD button beside it, every frame)
 	toggle.Position = UDim2.new(1, -230, 0, 28)
 	corner(toggle, 1)
 	toggle.Parent = screen
@@ -217,6 +220,24 @@ local function build()
 	giveTab.ZIndex = 0
 	giveTab.TextColor3 = Color3.fromRGB(40, 30, 10)
 	for _, c in giveTab:GetChildren() do
+		if c:IsA("UIStroke") and c.ApplyStrokeMode == Enum.ApplyStrokeMode.Contextual then
+			c:Destroy()
+		end
+	end
+
+	-- the "Admins" tab beside it (shown to the owner only, once the server says so)
+	local adminsTab = button(
+		window,
+		"👑 Admins",
+		UDim2.fromScale(0.22, 0.075),
+		UDim2.fromScale(0.33, -0.082),
+		Color3.fromRGB(120, 200, 255)
+	)
+	adminsTab.Name = "AdminsTab"
+	adminsTab.ZIndex = 0
+	adminsTab.TextColor3 = Color3.fromRGB(10, 30, 50)
+	adminsTab.Visible = false
+	for _, c in adminsTab:GetChildren() do
 		if c:IsA("UIStroke") and c.ApplyStrokeMode == Enum.ApplyStrokeMode.Contextual then
 			c:Destroy()
 		end
@@ -304,15 +325,46 @@ local function build()
 		end
 	end
 
-	local function showAnimals(on: boolean)
-		animals.Visible = on
-		commands.Visible = not on
-		listTitle.Text = if on
+	-- the Admins page: a name box with "Make admin", then everyone the owner has made admin, each with "Remove"
+	local admins = scroller(window, "Admins", UDim2.fromScale(0.94, 0.67), UDim2.fromScale(0.03, 0.3))
+	admins.Visible = false
+	local addRow = Instance.new("Frame")
+	addRow.Name = "AddRow"
+	addRow.LayoutOrder = 0
+	addRow.BackgroundTransparency = 1
+	addRow.Size = UDim2.new(1, -12, 0, 48)
+	addRow.Parent = admins
+	local nameBox = field(
+		addRow,
+		"NameBox",
+		"Player name (in this server, or any username)",
+		UDim2.fromScale(0.66, 0.9),
+		UDim2.fromScale(0, 0.05)
+	)
+	local addButton = button(
+		addRow,
+		"Make admin",
+		UDim2.fromScale(0.32, 0.9),
+		UDim2.fromScale(0.68, 0.05),
+		Color3.fromRGB(60, 200, 60)
+	)
+	addButton.Name = "MakeAdmin"
+	local adminRows: { Frame } = {}
+
+	local function showPage(page: string)
+		animals.Visible = page == "Animals"
+		admins.Visible = page == "Admins"
+		commands.Visible = page == "Commands"
+		listTitle.Text = if page == "Animals"
 			then "Give Animal (click one, then Run: count and player are optional)"
+			elseif page == "Admins" then "Admins (saved: they stay admins in every server)"
 			else "Commands (click one to use it)"
 	end
 	giveTab.Activated:Connect(function()
-		showAnimals(not animals.Visible)
+		showPage(if animals.Visible then "Commands" else "Animals")
+	end)
+	adminsTab.Activated:Connect(function()
+		showPage(if admins.Visible then "Commands" else "Admins")
 	end)
 
 	-- text sizes and row heights follow the window's size (TextScaled would wrap the longer lines)
@@ -357,12 +409,72 @@ local function build()
 	end
 
 	local loaded = false
-	local function load()
+	local load: () -> ()
+	local function runLine(line: string): boolean
+		local ok = ask("run", line)
+		if ok and (string.find(line, "^/?admin") or string.find(line, "^/?unadmin")) then
+			task.spawn(load)
+		end
+		return ok
+	end
+	local function fillAdmins(list: { { UserId: number, Name: string } })
+		for _, r in adminRows do
+			r:Destroy()
+		end
+		table.clear(adminRows)
+		if #list == 0 then
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.LayoutOrder = 1
+			row.Size = UDim2.new(1, -12, 0, 40)
+			label(row, "None", "No admins yet besides you.", UDim2.fromScale(1, 1), UDim2.fromScale(0.02, 0), SOFT)
+			row.Parent = admins
+			table.insert(adminRows, row)
+		end
+		for i, a in list do
+			local row = Instance.new("Frame")
+			row.Name = a.Name
+			row.LayoutOrder = i
+			row.BackgroundColor3 = if i % 2 == 0 then Color3.fromRGB(46, 49, 64) else Color3.fromRGB(39, 42, 56)
+			row.Size = UDim2.new(1, -12, 0, 46)
+			corner(row, 0.15)
+			local l = label(row, "Name", "👑 " .. a.Name, UDim2.fromScale(0.62, 0.8), UDim2.fromScale(0.03, 0.1))
+			l.TextScaled = true
+			local remove = button(
+				row,
+				"Remove",
+				UDim2.fromScale(0.28, 0.78),
+				UDim2.fromScale(0.7, 0.11),
+				Color3.fromRGB(225, 60, 60)
+			)
+			remove.Activated:Connect(function()
+				task.spawn(runLine, "/unadmin " .. a.Name)
+			end)
+			row.Parent = admins
+			table.insert(adminRows, row)
+		end
+	end
+	addButton.Activated:Connect(function()
+		local name = nameBox.Text:gsub("%s", "")
+		if name ~= "" then
+			task.spawn(function()
+				if runLine("/admin " .. name) then
+					nameBox.Text = ""
+				end
+			end)
+		end
+	end)
+
+	function load()
 		local ok, info = ask("info")
 		if not (ok and type(info) == "table") then
 			return
 		end
 		loaded = true
+		adminsTab.Visible = info.Owner == true
+		if type(info.Admins) == "table" then
+			fillAdmins(info.Admins)
+		end
 		for _, r in rows do
 			r:Destroy()
 		end
@@ -406,8 +518,7 @@ local function build()
 			return
 		end
 		task.spawn(function()
-			local ok = ask("run", line)
-			if ok then
+			if runLine(line) then
 				commandBox.Text = ""
 			end
 		end)
@@ -419,18 +530,23 @@ local function build()
 		end
 	end)
 	fit()
+	return screen
 end
 
 function AdminPanel.init()
-	task.spawn(function()
-		local t0 = os.clock()
-		while player:GetAttribute("IsAdmin") == nil and os.clock() - t0 < 30 do
-			player:GetAttributeChangedSignal("IsAdmin"):Wait()
+	-- built when you're an admin (also when the owner makes you one while you play), gone if it's taken away
+	local screen: ScreenGui? = nil
+	local function check()
+		local isAdmin = player:GetAttribute("IsAdmin") == true
+		if isAdmin and not screen then
+			screen = build()
+		elseif not isAdmin and screen then
+			screen:Destroy()
+			screen = nil
 		end
-		if player:GetAttribute("IsAdmin") then
-			build()
-		end
-	end)
+	end
+	player:GetAttributeChangedSignal("IsAdmin"):Connect(check)
+	check()
 end
 
 return AdminPanel

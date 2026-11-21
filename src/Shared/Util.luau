@@ -32,6 +32,20 @@ function Util.formatNumber(n: number): string
 	return sign .. tostring(math.floor(abs + 0.5))
 end
 
+-- The whole number with commas: 2000 -> "2,000", 1500000 -> "1,500,000" (the hatch shows these in full, user
+-- 2026-11-22). Past 1e15 it falls back to formatNumber.
+function Util.commas(n: number): string
+	if n ~= n then
+		return "0"
+	end
+	if math.abs(n) >= 1e15 then
+		return Util.formatNumber(n)
+	end
+	local s = tostring(math.floor(math.abs(n) + 0.5))
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	return (if n < 0 then "-" else "") .. out
+end
+
 -- The other way: "2.5M", "1b", "3Qa", "14,000", "500" -> a number (nil if it isn't one).
 function Util.parseNumber(text: string): number?
 	local t = string.gsub(string.gsub(text, ",", ""), "^%$", "")

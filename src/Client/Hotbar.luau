@@ -24,6 +24,7 @@ local Hotbar = {}
 
 type Placing = {
 	id: string,
+	key: string, -- id, or id*mult (Config.parseKey)
 	tool: Tool,
 	ghost: Model,
 	highlight: Highlight,
@@ -31,6 +32,7 @@ type Placing = {
 	valid: boolean,
 	x: number,
 	z: number,
+	started: number,
 }
 local placing: Placing? = nil
 
@@ -53,7 +55,7 @@ local function startPlacing(tool: Tool)
 		HUD.toast("You don't have a base yet.", Color3.fromRGB(255, 120, 80))
 		return
 	end
-	local ghost = AnimalFactory.create(id, info.Height, info.Height * 2.2)
+	local ghost = AnimalFactory.create(id, info.BaseHeight, math.min(info.BaseHeight * 2.2, Config.MaxBaseAnimalWidth))
 	for _, part in Util.parts(ghost) do
 		part.CanQuery = false
 	end
@@ -63,7 +65,18 @@ local function startPlacing(tool: Tool)
 	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 	highlight.Parent = ghost
 	ghost.Parent = Workspace
-	placing = { id = id, tool = tool, ghost = ghost, highlight = highlight, rotation = 0, valid = false, x = 0, z = 0 }
+	placing = {
+		id = id,
+		key = tool:GetAttribute("AnimalKey") or id,
+		tool = tool,
+		ghost = ghost,
+		highlight = highlight,
+		rotation = 0,
+		valid = false,
+		x = 0,
+		z = 0,
+		started = os.clock(),
+	}
 	HUD.setHint(`Place your {info.Name}: click inside your base  ·  R rotate  ·  Q cancel`)
 end
 
@@ -77,7 +90,7 @@ local function rayParams(): RaycastParams
 	if placing then
 		table.insert(ignore, placing.ghost)
 	end
-	for _, name in { "WildAnimals", "BaseAnimals", "LocalDisaster" } do
+	for _, name in { "WildEggs", "BaseAnimals", "LocalDisaster" } do
 		local folder = Workspace:FindFirstChild(name)
 		if folder then
 			table.insert(ignore, folder)
@@ -124,7 +137,15 @@ local function confirm()
 		HUD.toast("Place animals inside your base.", Color3.fromRGB(255, 120, 80), 2)
 		return
 	end
-	PlaceAnimal:FireServer(p.id, p.x, p.z, p.rotation)
+	if os.clock() - p.started < 0.4 then
+		return -- (the click that equipped it)
+	end
+	PlaceAnimal:FireServer(p.key, p.x, p.z, p.rotation)
+	-- one click places one animal, then the tool goes back in the hotbar: a stray click can never drop a whole stack
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid:UnequipTools()
+	end
 end
 
 local function watchCharacter(character: Model)

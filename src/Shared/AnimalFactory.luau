@@ -106,6 +106,36 @@ function AnimalFactory.create(id: string, height: number, maxWidth: number): Mod
 	pivotToBottom(model)
 
 	local _, finalSize = model:GetBoundingBox()
+	-- the Toxic Wasteland's animals are radioactive: tinted green in Assets, and here a green glow and rising
+	-- sparks around them
+	local root = model.PrimaryPart
+	if model:GetAttribute("Radioactive") and root then
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(120, 255, 80)
+		light.Range = math.clamp(finalSize.Y * 1.2, 8, 60)
+		light.Brightness = 1.5
+		light.Shadows = false
+		light.Parent = root
+		local sparks = Instance.new("ParticleEmitter")
+		sparks.Name = "Radiation"
+		sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		sparks.Color = ColorSequence.new(Color3.fromRGB(140, 255, 90))
+		sparks.LightEmission = 1
+		sparks.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, math.clamp(finalSize.Y * 0.06, 0.3, 3)),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		sparks.Transparency =
+			NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+		sparks.Lifetime = NumberRange.new(1, 1.6)
+		sparks.Rate = 6
+		sparks.Speed = NumberRange.new(1, 3)
+		sparks.Acceleration = Vector3.new(0, 2, 0)
+		sparks.SpreadAngle = Vector2.new(180, 180)
+		sparks.Shape = Enum.ParticleEmitterShape.Box
+		sparks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		sparks.Parent = root
+	end
 	model:SetAttribute("AnimalId", id)
 	model:SetAttribute("Height", finalSize.Y)
 	return model

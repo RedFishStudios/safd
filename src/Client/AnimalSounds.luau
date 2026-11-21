@@ -89,6 +89,14 @@ local CALL_OF = {
 	Toucan = "Chirp",
 	RedPanda = "Squeak",
 	Kitsune = "Bark",
+	Caladrius = "Screech",
+	Simurgh = "Chirp",
+	Dimetrodon = "Hiss",
+	BichonFrise = "Bark",
+	Ankylosaurus = "Bellow",
+	Triceratops = "Bellow",
+	Gecko = "Hiss",
+	Jackal = "Howl",
 }
 
 -- (heard more: the biomes' animals are few and spread out, so with calls every 8-20 s within 90 studs you rarely heard

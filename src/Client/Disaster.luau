@@ -2,7 +2,7 @@
 --   * a short cutscene first: the camera flies to the far end of the biome, where the disaster rises out of the
 --     ground with a roar, then swoops back behind you: RUN!
 --   * the wall made of the biome then comes after you (fast while it's far behind, Config.WallCatchUpGap)
---   * a different course every run (Client/RunCourse): blockades, split paths, ziplines, launch pads, x2/x3/x5 rings
+--   * a different course every run (Client/RunCourse): jumps, slides, double jumps, gates, luck rings (no ziplines or rivers)
 --   * every action answers with a sound and a camera punch (Client/ChaseFx)
 --   * nearby scenery topples over one piece at a time, rocks drop from the sky, the floor cracks
 --   * touching any of that slows the player for Config.SlowDuration seconds
@@ -21,8 +21,10 @@ local Config = require(Shared.Config)
 local MapInfo = require(Shared.MapInfo)
 local MapStyle = require(Shared.MapStyle)
 local Net = require(Shared.Net)
+local Util = require(Shared.Util)
 
 local ChaseFx = require(script.Parent.ChaseFx)
+local DisasterLooks = require(script.Parent.DisasterLooks)
 local HUD = require(script.Parent.HUD)
 local Hazards = require(script.Parent.Hazards)
 local RunCourse = require(script.Parent.RunCourse)
@@ -45,9 +47,11 @@ type State = {
 	trackMaxX: number,
 	folder: Folder,
 	wall: Model,
+	look: DisasterLooks.Look,
 	wallCF: CFrame,
 	gui: ScreenGui,
 	runLabel: TextLabel,
+	runFirst: number?,
 	runScale: UIScale,
 	distanceLabel: TextLabel,
 	slowLabel: TextLabel,
@@ -182,7 +186,7 @@ local function groundAt(s: State, position: Vector3): Vector3?
 	if char then
 		table.insert(ignore, char)
 	end
-	for _, name in { "WildAnimals", "BaseAnimals" } do
+	for _, name in { "WildEggs", "BaseAnimals" } do
 		local folder = Workspace:FindFirstChild(name)
 		if folder then
 			table.insert(ignore, folder)
@@ -235,68 +239,11 @@ end
 
 -- Wall ----------------------------------------------------------------------------------------------------------
 
-local function buildWall(s: State, biome, start: CFrame): Model
-	local model = Instance.new("Model")
-	model.Name = "DisasterWall"
+-- (each biome's own disaster: Client/DisasterLooks)
+local function buildWall(s: State): Model
 	local width = (s.trackMaxX - s.trackMinX) + 80
-	local main = Instance.new("Part")
-	main.Name = "Main"
-	main.Size = Vector3.new(width, 90, WALL_THICKNESS)
-	main.Material = biome.WallMaterial
-	main.Color = biome.WallColor
-	main.Anchored = true
-	main.CanCollide = false
-	main.CanQuery = false
-	main.CanTouch = false
-	main.CFrame = start
-	main.Parent = model
-	model.PrimaryPart = main
-
-	-- Jagged chunks on the front face so it reads as a churning mass, not a flat slab.
-	for _ = 1, 45 do
-		local chunk = Instance.new("Part")
-		local size = rng:NextNumber(6, 16)
-		chunk.Size = Vector3.new(size, size * rng:NextNumber(0.6, 1.2), size)
-		chunk.Material = biome.WallMaterial
-		local h, sat, v = biome.WallColor:ToHSV()
-		chunk.Color = Color3.fromHSV(h, sat, math.clamp(v * rng:NextNumber(0.75, 1.1), 0, 1))
-		chunk.Anchored = true
-		chunk.CanCollide = false
-		chunk.CanQuery = false
-		chunk.CanTouch = false
-		chunk.CFrame = start
-			* CFrame.new(
-				rng:NextNumber(-width / 2, width / 2),
-				rng:NextNumber(-45, 50),
-				-WALL_THICKNESS / 2 - rng:NextNumber(0, 5)
-			)
-			* CFrame.Angles(rng:NextNumber(0, 6.3), rng:NextNumber(0, 6.3), rng:NextNumber(0, 6.3))
-		chunk.Parent = model
-	end
-
-	local front = Instance.new("Part")
-	front.Name = "Debris"
-	front.Size = Vector3.new(width, 80, 1)
-	front.Transparency = 1
-	front.Anchored = true
-	front.CanCollide = false
-	front.CanQuery = false
-	front.CanTouch = false
-	front.CFrame = start * CFrame.new(0, 0, -WALL_THICKNESS / 2 - 3)
-	front.Parent = model
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Texture = SMOKE
-	emitter.Shape = Enum.ParticleEmitterShape.Box
-	emitter.EmissionDirection = Enum.NormalId.Front
-	emitter.Color = ColorSequence.new(biome.WallColor)
-	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 6), NumberSequenceKeypoint.new(1, 14) })
-	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
-	emitter.Lifetime = NumberRange.new(1.2, 2.2)
-	emitter.Speed = NumberRange.new(10, 30)
-	emitter.SpreadAngle = Vector2.new(35, 35)
-	emitter.Rate = 30
-	emitter.Parent = front
-	return model
+	s.look = DisasterLooks.build(s.biome, width)
+	return s.look.model
 end
 
 -- Toppling scenery ----------------------------------------------------------------------------------------------
@@ -531,14 +478,13 @@ local function hazardContext(s: State): Hazards.Context
 		end,
 		hit = function(_, push: Vector3)
 			local _, humanoid, hrp = character()
-			if not humanoid or not hrp or RunCourse.isRiding(s.course) then
+			if not humanoid or not hrp then
 				return
 			end
 			ChaseFx.play("Thud", 1, rng:NextNumber(0.9, 1.1))
 			ChaseFx.kick(-8)
-			Movement.slow(Config.HazardHitSlow)
-			hrp.AssemblyLinearVelocity = push * 45 + Vector3.new(0, 38, 0)
-			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+			-- (a hit no longer slows you or throws you: only the strips slow you; user 2026-11-20)
+			local _ = push
 			s.shake = math.max(s.shake, 1.3)
 			flash("OUCH!", Color3.fromRGB(255, 70, 70))
 		end,
@@ -564,7 +510,44 @@ local function launchProjectile(s: State, hrp: BasePart, aimed: boolean)
 	else
 		target = aheadPoint(s, hrp, 25, 75)
 	end
-	target = Vector3.new(math.clamp(target.X, s.trackMinX + 4, s.trackMaxX - 4), target.Y, target.Z)
+	-- only on the valley floor, never up on the hills, a tree or a build (user 2026-11-22: red circles were landing on
+	-- the trees): x stays over the floor, and a spot whose ground is higher than the floor is moved or skipped
+	target = Vector3.new(math.clamp(target.X, -69, 53), target.Y, target.Z)
+	local b = MapInfo.biomeAt(Vector3.new(-8, 1, target.Z))
+	local _, maxV = MapInfo.bounds(b or s.biome)
+	local floorY = if maxV then maxV.Y else s.groundY
+	local onFloor = false
+	for k = 0, 5 do
+		local x = math.clamp(target.X + (if target.X > -8 then -1 else 1) * k * 7, -69, 53)
+		local hit = groundAt(s, Vector3.new(x, floorY, target.Z))
+		if hit and hit.Y <= floorY + 1.5 then
+			target = Vector3.new(x, target.Y, target.Z)
+			onFloor = true
+			break
+		end
+	end
+	if not onFloor then
+		return
+	end
+	-- nothing past the white line (the safe side): user 2026-11-20
+	if (target - MapInfo.dangerLine()):Dot(s.toBase) > -12 then
+		return
+	end
+	-- never on top of a barrier or trench you have to jump / slide right then: shift it off, or skip this one
+	if RunCourse.busyAt(s.course, target.Z, 10) then
+		local moved = false
+		for _, dz in { 18, -18, 30 } do
+			local z = target.Z + s.toBase.Z * dz
+			if not RunCourse.busyAt(s.course, z, 10) then
+				target = Vector3.new(target.X, target.Y, z)
+				moved = true
+				break
+			end
+		end
+		if not moved then
+			return
+		end
+	end
 	Hazards.projectile(hazardContext(s), Hazards.pick(theme.Projectiles), target)
 end
 
@@ -585,8 +568,8 @@ local function spectacle(s: State, hrp: BasePart, now: number)
 		local z = hrp.Position.Z + s.toBase.Z * rng:NextNumber(-20, 140)
 		Hazards.tumble(hazardContext(s), Hazards.pick(kinds), side, z, s.groundY)
 	end
-	if now >= s.nextGeyser then
-		s.nextGeyser = now + rng:NextNumber(1.1, 2.2)
+	if Config.SideGeysers and now >= s.nextGeyser then
+		s.nextGeyser = now + rng:NextNumber(2.2, 3.6)
 		local side = if rng:NextNumber() < 0.5 then -1 else 1
 		local x = if side < 0 then s.trackMinX - rng:NextNumber(4, 25) else s.trackMaxX + rng:NextNumber(4, 25)
 		local z = hrp.Position.Z + s.toBase.Z * rng:NextNumber(20, 110)
@@ -594,7 +577,7 @@ local function spectacle(s: State, hrp: BasePart, now: number)
 		Hazards.geyser(hazardContext(s), biome, ground or Vector3.new(x, s.groundY, z))
 	end
 	if now >= s.nextCollapse then
-		s.nextCollapse = now + rng:NextNumber(0.5, 0.9)
+		s.nextCollapse = now + rng:NextNumber(2, 3.2)
 		-- Behind the player: big dust clouds and debris where the route is being swallowed.
 		local behindZ = hrp.Position.Z - s.toBase.Z * rng:NextNumber(15, 60)
 		local ctx = hazardContext(s)
@@ -611,30 +594,6 @@ local function spectacle(s: State, hrp: BasePart, now: number)
 			)
 		end
 	end
-end
-
--- A wall across the whole path coming straight at you: slide under it / double jump over it (Hazards.barrier).
-local function launchBarrier(s: State, hrp: BasePart, mode: string): boolean
-	local theme = currentTheme(s, hrp)
-	local biome = MapInfo.biomeAt(hrp.Position) or s.biome
-	local ahead = hrp.Position + s.toBase * 95
-	local ground = groundAt(s, ahead)
-	local here = groundAt(s, hrp.Position + s.toBase * 15)
-	if not ground or not here or MapInfo.isSafe(ground) or MapInfo.isSafe(here) then
-		return false
-	end
-	Hazards.barrier(hazardContext(s), mode, biome, theme.Flyers or theme.Projectiles, ahead, here.Y)
-	return true
-end
-
-local function launchRoller(s: State, hrp: BasePart)
-	local theme = currentTheme(s, hrp)
-	local ahead = hrp.Position + s.toBase * rng:NextNumber(10, 30)
-	local ground = groundAt(s, ahead)
-	if not ground or MapInfo.isSafe(ground) then
-		return
-	end
-	Hazards.roller(hazardContext(s), Hazards.pick(theme.Rollers), ahead.Z, ground.Y)
 end
 
 -- UI ------------------------------------------------------------------------------------------------------------
@@ -666,10 +625,10 @@ local function buildGui(): (ScreenGui, TextLabel, UIScale, TextLabel, TextLabel,
 	-- Red edges: four gradient frames fading towards the centre.
 	local edges = {}
 	local specs = {
-		{ UDim2.fromScale(0, 0), UDim2.fromScale(0.2, 1), 0 }, -- left
-		{ UDim2.fromScale(0.8, 0), UDim2.fromScale(0.2, 1), 180 }, -- right
-		{ UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.2), 90 }, -- top
-		{ UDim2.fromScale(0, 0.8), UDim2.fromScale(1, 0.2), 270 }, -- bottom
+		-- (thin and faint, and none along the top where the prompt is: they covered the view; user 2026-11-20)
+		{ UDim2.fromScale(0, 0), UDim2.fromScale(0.1, 1), 0 }, -- left
+		{ UDim2.fromScale(0.9, 0), UDim2.fromScale(0.1, 1), 180 }, -- right
+		{ UDim2.fromScale(0, 0.9), UDim2.fromScale(1, 0.1), 270 }, -- bottom
 	}
 	for _, spec in specs do
 		local frame = Instance.new("Frame")
@@ -677,7 +636,7 @@ local function buildGui(): (ScreenGui, TextLabel, UIScale, TextLabel, TextLabel,
 		frame.Size = spec[2]
 		frame.BorderSizePixel = 0
 		frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-		frame.BackgroundTransparency = 0.5
+		frame.BackgroundTransparency = 0.75
 		frame.Parent = gui
 		local gradient = Instance.new("UIGradient")
 		gradient.Rotation = spec[3]
@@ -698,15 +657,15 @@ local function buildGui(): (ScreenGui, TextLabel, UIScale, TextLabel, TextLabel,
 	local scale = Instance.new("UIScale")
 	scale.Parent = runLabel
 	local distanceLabel = textLabel(gui, {
-		Position = UDim2.fromScale(0.5, 0.18),
+		Position = UDim2.fromScale(0.5, 0.955),
 		Size = UDim2.fromScale(0.35, 0.035),
 		Text = "",
 		TextColor3 = Color3.fromRGB(255, 220, 220),
 		Font = Enum.Font.GothamBold,
 	})
 	local slowLabel = textLabel(gui, {
-		Position = UDim2.fromScale(0.5, 0.62),
-		Size = UDim2.fromScale(0.25, 0.06),
+		Position = UDim2.fromScale(0.5, 0.86),
+		Size = UDim2.fromScale(0.2, 0.05),
 		Text = "SLOWED!",
 		TextColor3 = Color3.fromRGB(120, 180, 255),
 		Visible = false,
@@ -717,8 +676,8 @@ end
 function flash(text: string, color: Color3)
 	local gui = HUD.gui()
 	local l = textLabel(gui, {
-		Position = UDim2.fromScale(0.5, 0.3),
-		Size = UDim2.fromScale(0.4, 0.12),
+		Position = UDim2.fromScale(0.5, 0.2),
+		Size = UDim2.fromScale(0.3, 0.06),
 		Text = text,
 		TextColor3 = color,
 	})
@@ -786,10 +745,14 @@ local function update(s: State, dt: number)
 		speed = 0
 	end
 	s.wallCF += s.toBase * speed * dt
-	s.wall:PivotTo(s.wallCF)
-	local frontPlane = s.wallCF.Position + s.toBase * (WALL_THICKNESS / 2 + 4)
+	DisasterLooks.move(s.look, s.wallCF, now)
+	-- (the wall's visible face: the front of its main slab; the smoke in front of it doesn't count)
+	local frontPlane = s.wallCF.Position + s.toBase * (WALL_THICKNESS / 2)
 	local gap = (hrp.Position - frontPlane):Dot(s.toBase)
-	if gap < 1 and humanoid.Health > 0 then
+	-- caught only when your WHOLE body is in it: the front of you (~1 stud ahead of your middle) is past the face
+	-- (user, 2026-11-20: "the wall never touched me but it registered it as I died")
+	-- (never while it's still waiting to start: it never forms on top of you, see Disaster.start)
+	if gap < -1.2 and humanoid.Health > 0 and now >= s.holdUntil then
 		-- The wall caught you: you die on the spot (the server drops your carried animals when you die).
 		s.shake = math.max(s.shake, 1.5)
 		humanoid.Health = 0
@@ -803,75 +766,50 @@ local function update(s: State, dt: number)
 	end
 
 	-- Hazards.
-	if now - s.lastScan > 2 then
-		s.lastScan = now
-		scanCandidates(s)
+	-- (the hillside topple is off by default: Client/RunCourse knocks over the map's own trees near your way, one at a
+	-- time, and puts them back after)
+	if Config.ToppleInterval < 1e8 then
+		if now - s.lastScan > 2 then
+			s.lastScan = now
+			scanCandidates(s)
+		end
+		advanceScenery(s, hrp, now)
+		shakeStep(s, now)
 	end
-	advanceScenery(s, hrp, now)
-	shakeStep(s, now)
 	spectacle(s, hrp, now)
-	-- Gameplay hazards: readable, spaced out, never more than a few warnings at once.
+	-- Gameplay hazards: readable, spaced out, never more than a couple of warnings at once (Client/RunCourse shows
+	-- DODGE! at the top of the screen while one is coming down near you).
 	if now >= s.nextProjectile and Hazards.activeTelegraphs < Config.MaxTelegraphs then
 		local range = Config.ProjectileInterval
 		s.nextProjectile = now + rng:NextNumber(range[1], range[2])
-		launchProjectile(s, hrp, rng:NextNumber() < 0.2)
-	end
-	-- Things crossing the path take turns, one at a time: a wall to slide under, a roller from the side, a wall to
-	-- double jump over, a roller...
-	if now >= s.nextRoller and Hazards.activeRollers == 0 and Hazards.activeTelegraphs <= 3 then
-		s.crossings += 1
-		local step = s.crossings % 4
-		if step == 1 or step == 3 then
-			local range = Config.FlyerInterval
-			s.nextRoller = now + rng:NextNumber(range[1], range[2])
-			if not launchBarrier(s, hrp, if step == 1 then "Slide" else "Jump") then
-				launchRoller(s, hrp)
-			end
-		else
-			local range = Config.RollerInterval
-			s.nextRoller = now + rng:NextNumber(range[1], range[2])
-			launchRoller(s, hrp)
+		-- half of them come down right where you'll be (dodge!), the rest just ahead of you
+		launchProjectile(s, hrp, rng:NextNumber() < 0.5)
+		if rng:NextNumber() < Config.ProjectileVolleyChance and Hazards.activeTelegraphs < Config.MaxTelegraphs then
+			launchProjectile(s, hrp, false)
 		end
 	end
-	if now >= s.nextBarrage and Hazards.activeTelegraphs <= 2 and Hazards.activeRollers == 0 then
-		-- A volley across the path that always leaves one third of it open.
-		s.nextBarrage = now + rng:NextNumber(5, 8)
-		local width = s.trackMaxX - s.trackMinX
-		local open = rng:NextInteger(1, 3)
-		local z = hrp.Position.Z + s.toBase.Z * rng:NextNumber(22, 38)
-		for lane = 1, 3 do
-			if lane ~= open then
-				local x = s.trackMinX + width * (lane - 0.5) / 3 + rng:NextNumber(-6, 6)
-				task.delay(lane * 0.15, function()
-					if state == s then
-						Hazards.projectile(
-							hazardContext(s),
-							Hazards.pick(currentTheme(s, hrp).Projectiles),
-							Vector3.new(x, s.groundY, z)
-						)
-					end
-				end)
-			end
-		end
-	end
+	-- (no rollers, flying walls or volleys any more: the lane's own obstacles (Client/RunCourse) are the things to
+	-- jump and slide, one at a time; user, 2026-11-20: "too many things going on")
 
-	-- Obstructions slow the player.
-	if #s.obstacles > 0 and not RunCourse.isRiding(s.course) then
-		local touching = Workspace:GetPartBoundsInBox(hrp.CFrame, Vector3.new(3.5, 6.5, 3.5), s.overlap)
-		if #touching > 0 then
-			if not Movement.isSlowed() then
-				s.shake = math.max(s.shake, 0.4)
-			end
-			Movement.slow(Config.SlowDuration)
-		end
+	-- Obstructions slow the player: running into one, not standing on top of it (the box starts above your feet, so
+	-- landing on a fallen log counts as getting over it)
+	if #s.obstacles > 0 then
+		local touching =
+			Workspace:GetPartBoundsInBox(hrp.CFrame * CFrame.new(0, 0.9, 0), Vector3.new(3.5, 4.2, 3.5), s.overlap)
+		-- (touching things never slows you: user 2026-11-20)
+		local _ = touching
 	end
 	s.slowLabel.Visible = Movement.isSlowed()
 
 	-- Juice: pulsing banner + edges, distance readout, camera shake.
 	local pulse = (math.sin(now * (3 + intensity * 6) * math.pi) + 1) / 2
 	s.runScale.Scale = 1 + pulse * 0.08 + intensity * 0.12
+	-- "RUN!" only for the first 2 s of the run; after that the top centre belongs to the action prompts (user
+	-- 2026-11-20: less covering the action). The red edges stay faint.
+	s.runFirst = s.runFirst or now
+	s.runLabel.Visible = now - (s.runFirst :: number) < 2 and not RunCourse.prompting(s.course)
 	for _, edge in s.edges do
-		edge.BackgroundTransparency = math.clamp(0.7 - intensity * 0.45 - pulse * 0.2, 0.05, 1)
+		edge.BackgroundTransparency = math.clamp(0.85 - intensity * 0.25 - pulse * 0.1, 0.5, 1)
 	end
 	s.distanceLabel.Text = if gap < 12
 		then "THE WALL IS RIGHT BEHIND YOU!"
@@ -915,12 +853,13 @@ function Disaster.start(biomeIndex: number)
 	local camera = Workspace.CurrentCamera
 	local s: State = {
 		biome = biomeIndex,
-		speed = biome.WallSpeed,
+		speed = biome.WallSpeed * Config.RunWallFactor,
 		toBase = toBase,
 		trackMinX = minV and minV.X or hrp.Position.X - 60,
 		trackMaxX = maxV and maxV.X or hrp.Position.X + 60,
 		folder = folder,
 		wall = nil :: any,
+		look = nil :: any,
 		wallCF = CFrame.identity,
 		gui = gui,
 		runLabel = runLabel,
@@ -958,10 +897,23 @@ function Disaster.start(biomeIndex: number)
 		locked = nil,
 		guide = nil,
 		nextGhost = 0,
-		-- the run home: only the chase's own screen (no money, speed, shop, index, hotbar ...)
+		-- the run home: only the chase's own screens (no money, speed, shop, index, hotbar ...). Kept: the action
+		-- prompts, egg pickup prompts, the hatch screen and the phone controls (joystick, jump, slide buttons): hiding
+		-- those made eggs uncollectable and the prompts invisible mid-run (user, 2026-11-20)
 		holdFor = 0,
 		holdUntil = 0,
-		restoreUi = ChaseFx.hideUi({ "DisasterGui", "SAFD_Rescue", "SAFD_Intro" }),
+		restoreUi = ChaseFx.hideUi({
+			"DisasterGui",
+			"SAFD_Rescue",
+			"SAFD_Intro",
+			"SAFD_Tutorial",
+			"SAFD_Controls",
+			"SAFD_RunPrompt",
+			"SAFD_Hatch",
+			"ProximityPrompts",
+			"TouchGui",
+			"ContextActionGui",
+		}),
 	}
 	local groundY = (minV and maxV) and maxV.Y or hrp.Position.Y - 3
 	s.groundY = groundY
@@ -970,34 +922,40 @@ function Disaster.start(biomeIndex: number)
 	-- Config.WallStartDistance (the legendaries live out there).
 	local back = -toBase
 	local farZ = if minV and maxV then (if back.Z > 0 then maxV.Z else minV.Z) else hrp.Position.Z
-	-- (always this biome's own far end, even when you're close to it: it used to start further back, inside the next
-	-- biome, which looked like the disaster was happening there. Close to the end, it waits a moment instead.)
+	-- ALWAYS this biome's own far end (user 2026-11-21: it used to form inside the next biome when you picked up an egg
+	-- near the end). Close to the end it doesn't move at first: a head start, longer the closer you were.
 	local wallZ = farZ
-	local head = (hrp.Position.Z - farZ) * toBase.Z - WALL_THICKNESS / 2
-	s.holdFor = math.max(0, Config.WallStartDistance - head) / s.speed
+	local head = math.max(0, (hrp.Position.Z - farZ) * toBase.Z - WALL_THICKNESS / 2)
+	s.holdFor = if head < Config.WallStartDistance
+		then (Config.WallStartDistance - head) / s.speed + Config.WallFarEndHeadStart
+		else 0
 	local wallPos = Vector3.new(centerX, groundY + 40, wallZ)
 	s.wallCF = CFrame.lookAt(wallPos, wallPos + toBase)
-	s.wall = buildWall(s, biome, s.wallCF)
+	s.wall = buildWall(s)
 	MapStyle.applyAll(s.wall)
-	s.wall:PivotTo(s.wallCF - Vector3.new(0, 100, 0)) -- still under the ground: the cutscene raises it
+	DisasterLooks.move(s.look, s.wallCF - Vector3.new(0, 100, 0), os.clock()) -- still under the ground: the cutscene raises it
 	s.wall.Parent = folder
 	state = s
 
 	-- the run bonus readout
+	-- (top right, big: out of the way of the prompt and the view ahead)
 	local bonusLabel = textLabel(gui, {
-		Position = UDim2.fromScale(0.5, 0.225),
-		Size = UDim2.fromScale(0.3, 0.05),
-		Text = "RUN BONUS x1",
+		Position = UDim2.fromScale(0.87, 0.14),
+		Size = UDim2.fromScale(0.22, 0.08),
+		Text = "LUCK x1",
 		TextColor3 = Color3.fromRGB(255, 230, 120),
 	})
 	s.bonusLabel = bonusLabel
+	RunCourse.luckTarget = bonusLabel -- (picked-up badges fly up into it)
 	-- this run's course
 	s.course = RunCourse.build(folder, hrp.Position, function(value: number)
-		s.bonus = math.min(s.bonus * value, Config.RunMultiplierCap)
-		bonusLabel.Text = "RUN BONUS x" .. s.bonus
+		s.bonus = math.min(s.bonus * value, Config.RunMultiplierCap) -- (badges multiply)
+		bonusLabel.Text = "LUCK x" .. Util.formatNumber(s.bonus)
 		local sc = bonusLabel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 		sc.Parent = bonusLabel
-		sc.Scale = 1.5
+		sc.Scale = 1.6
+		bonusLabel.TextColor3 = Color3.new(1, 1, 1)
+		TweenService:Create(bonusLabel, TweenInfo.new(0.4), { TextColor3 = Color3.fromRGB(255, 230, 120) }):Play()
 		TweenService:Create(sc, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
 			:Play()
 	end)
@@ -1027,7 +985,7 @@ function Disaster.start(biomeIndex: number)
 		band.Parent = folder
 		local bb = Instance.new("BillboardGui")
 		bb.Size = UDim2.fromOffset(260, 70)
-		bb.AlwaysOnTop = true
+		bb.AlwaysOnTop = false
 		bb.LightInfluence = 0
 		bb.StudsOffsetWorldSpace = Vector3.new(0, -100, 0)
 		local l = Instance.new("TextLabel")
@@ -1125,13 +1083,13 @@ function Disaster.start(biomeIndex: number)
 		end
 		ChaseFx.play("Roar", 1.2, 0.45)
 		ChaseFx.play("Impact", 1, 0.7)
-		ChaseFx.pop(`THE {string.upper(biome.Name)} IS COLLAPSING!`, Color3.fromRGB(255, 80, 50), true)
+		ChaseFx.pop(`{s.look.title}! RUN!`, Color3.fromRGB(255, 80, 50), true)
 		local t0 = os.clock()
 		local RISE = 1.35
 		while os.clock() - t0 < RISE and state == s do
 			local k = (os.clock() - t0) / RISE
 			local e = TweenService:GetValue(k, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-			s.wall:PivotTo(s.wallCF - Vector3.new(0, 100 * (1 - e), 0))
+			DisasterLooks.move(s.look, s.wallCF - Vector3.new(0, 100 * (1 - e), 0), os.clock())
 			cam.CFrame = shot * CFrame.new(rng:NextNumber(-1, 1) * 0.3, rng:NextNumber(-1, 1) * 0.3, 0)
 			if rng:NextNumber() < 0.25 then
 				dust(
@@ -1146,7 +1104,7 @@ function Disaster.start(biomeIndex: number)
 		if state ~= s then
 			return
 		end
-		s.wall:PivotTo(s.wallCF)
+		DisasterLooks.move(s.look, s.wallCF, os.clock())
 		ChaseFx.play("Impact", 0.9, 0.55)
 		-- swoop back behind you
 		local _, _, root = character()
@@ -1227,6 +1185,8 @@ function Disaster.stop(lost: boolean)
 end
 
 function Disaster.init()
+	-- (find the map's trees for the falling-tree effect in the background, before the first chase)
+	task.delay(6, RunCourse.prepare)
 	Net.event("DisasterStart").OnClientEvent:Connect(function(biomeIndex: number)
 		Disaster.start(biomeIndex)
 	end)

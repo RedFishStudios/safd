@@ -6,6 +6,9 @@
 	"globIgnorePaths": ["**/*.md"],
 
 	"tree": {
+		"ReplicatedFirst": {
+			"First": { "$path": "src/First" }
+		},
 		"ServerScriptService": {
 			"Server": { "$path": "src/Server" }
 		},

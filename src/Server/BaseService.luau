@@ -13,6 +13,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Util = require(Shared.Util)
 local Progression = require(Shared.Progression)
+local MapInfo = require(Shared.MapInfo)
+local Net = require(Shared.Net)
 
 local BaseService = {}
 
@@ -191,7 +193,7 @@ local function visibleBottom(m: Model): number
 end
 
 local function placeTreadmill(plot: Plot, tier: number)
-	local old = plot.Model:FindFirstChild("Treadmill")
+	local old = plot.Treadmill or plot.Model:FindFirstChild("Treadmill")
 	local src = treadmillTemplate(tier)
 	local model: Model
 	if src and src:IsA("Model") then
@@ -232,7 +234,8 @@ local function placeTreadmill(plot: Plot, tier: number)
 	model:PivotTo(target + Vector3.new(spot.X - cf.Position.X, y - bottom, spot.Z - cf.Position.Z))
 	model:SetAttribute("Owner", if plot.Owner then plot.Owner.UserId else 0)
 	model:SetAttribute("Tier", tier)
-	model.Parent = plot.Model
+	-- only a claimed base has a treadmill (user 2026-11-22): an empty one keeps it out of the world
+	model.Parent = if plot.Owner then plot.Model else nil
 	plot.Treadmill = model
 	plot.TreadmillTier = tier
 	if old then
@@ -456,6 +459,7 @@ function BaseService.applyTiers(player: Player, data: any)
 	end
 	if plot.Treadmill then
 		plot.Treadmill:SetAttribute("Owner", player.UserId)
+		plot.Treadmill.Parent = plot.Model
 	end
 	BaseService.updateUpgradeSigns(player, data)
 end
@@ -696,6 +700,23 @@ function BaseService.init()
 		BaseService.updateSign(nil, plot)
 	end
 	print(`[BaseService] {#plots} base plots ready`)
+
+	-- the Base button (Client/HomeButton, user 2026-11-22): back to your base from a biome, never during a run
+	local lastHome: { [Player]: number } = {}
+	Net.event("GoHome").OnServerEvent:Connect(function(player)
+		if (player:GetAttribute("Carrying") or 0) > 0 or os.clock() - (lastHome[player] or 0) < 2 then
+			return
+		end
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not root or MapInfo.isSafe(root.Position) then
+			return
+		end
+		lastHome[player] = os.clock()
+		BaseService.teleportHome(player)
+	end)
+	Players.PlayerRemoving:Connect(function(player)
+		lastHome[player] = nil
+	end)
 end
 
 -- (re)spawning: just in front of your base's gate, outside the pen, facing out towards the biomes
@@ -712,6 +733,7 @@ local function teleportHome(player: Player)
 		character:PivotTo(BaseService.spawnCFrame(plot))
 	end
 end
+BaseService.teleportHome = teleportHome
 
 function BaseService.assign(player: Player): Plot?
 	local free = {}
@@ -772,6 +794,7 @@ function BaseService.release(player: Player)
 	end
 	if plot.Treadmill then
 		plot.Treadmill:SetAttribute("Owner", 0)
+		plot.Treadmill.Parent = nil -- (no treadmill on an empty base)
 	end
 	BaseService.updateSign(nil, plot)
 end

@@ -1,6 +1,7 @@
 -- Owner / admin commands for the in-game admin panel (Client/AdminPanel). Every command is checked here;
 -- the client panel is only a convenience.
 
+local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -20,14 +21,93 @@ local AdminService = {}
 
 local Notify = Net.event("Notify")
 
-local function isAdmin(player: Player): boolean
-	if table.find(Config.Admins, player.UserId) then
+-- The owner: Config.Admins and the experience's creator. Only the owner can make (or unmake) other admins.
+local function isOwner(userId: number): boolean
+	if table.find(Config.Admins, userId) then
 		return true
 	end
 	if game.CreatorType == Enum.CreatorType.User then
-		return game.CreatorId == player.UserId
+		return game.CreatorId == userId
 	end
 	return false
+end
+
+-- Admins the owner made in game (/admin <name>): saved in their own DataStore, so they're admins in every server and
+-- after rejoining. { [userId as string] = name }
+local ADMIN_STORE, ADMIN_KEY = "SAFD_Admins_v1", "granted"
+local granted: { [string]: string } = {}
+local adminStore: DataStore? = nil
+
+local function isAdmin(player: Player): boolean
+	return isOwner(player.UserId) or granted[tostring(player.UserId)] ~= nil
+end
+
+local function refreshAdminFlags()
+	for _, p in Players:GetPlayers() do
+		p:SetAttribute("IsAdmin", isAdmin(p))
+		p:SetAttribute("IsOwner", isOwner(p.UserId))
+	end
+end
+
+local function loadGranted()
+	if not adminStore then
+		return
+	end
+	local ok, result = pcall(function()
+		return (adminStore :: DataStore):GetAsync(ADMIN_KEY)
+	end)
+	if ok then
+		granted = if type(result) == "table" then result else {}
+		refreshAdminFlags()
+	end
+end
+
+-- add (name given) or remove (name nil) one admin. Returns (saved, error message)
+local function setGranted(userId: number, name: string?): (boolean, string?)
+	local key = tostring(userId)
+	granted[key] = name
+	refreshAdminFlags()
+	if not adminStore then
+		return false, "not saved: the DataStore is unavailable (Studio needs API access)"
+	end
+	local ok, err = pcall(function()
+		(adminStore :: DataStore):UpdateAsync(ADMIN_KEY, function(old)
+			local list = if type(old) == "table" then old else {}
+			list[key] = name
+			granted = list
+			return list
+		end)
+	end)
+	refreshAdminFlags()
+	if not ok then
+		warn("[AdminService] could not save the admin list:", err)
+		return false, "not saved (DataStore error), only for this server"
+	end
+	return true, nil
+end
+
+-- a player in this server (part of the name is enough), or anyone on Roblox by exact username
+local function resolveUser(word: string?): (number?, string?)
+	if not word or word == "" then
+		return nil, nil
+	end
+	local q = string.lower(word)
+	for _, p in Players:GetPlayers() do
+		if string.lower(p.Name):sub(1, #q) == q or string.lower(p.DisplayName):sub(1, #q) == q then
+			return p.UserId, p.Name
+		end
+	end
+	local id = tonumber(word)
+	local ok, result = pcall(function()
+		return if id then id else Players:GetUserIdFromNameAsync(word)
+	end)
+	if ok and result then
+		local nameOk, name = pcall(function()
+			return Players:GetNameFromUserIdAsync(result)
+		end)
+		return result, if nameOk then name else word
+	end
+	return nil, nil
 end
 
 local function findTarget(admin: Player, name: unknown): Player?
@@ -131,18 +211,20 @@ COMMANDS.ResetData = function(_, target)
 	return `Reset {target.Name}`
 end
 
+-- arg: an animal id
 COMMANDS.GiveAnimal = function(_, target, data, arg, arg2)
-	if type(arg) ~= "string" or not Config.Animals[arg] then
+	local info = Config.parseKey(arg)
+	if not info then
 		return "Unknown animal"
 	end
 	local count = math.clamp(math.floor(number(arg2) or 1), 1, 20)
 	for _ = 1, count do
-		table.insert(data.Inventory, arg)
+		table.insert(data.Inventory, info.Id)
 	end
-	data.Discovered[arg] = true
+	data.Discovered[info.Id] = true
 	AnimalService.syncTools(target)
 	AnimalService.pushState(target)
-	return `Gave {target.Name} {count}x {Config.Animals[arg].Name}`
+	return `Gave {target.Name} {count}x {info.Name}`
 end
 
 COMMANDS.ClearInventory = function(_, target, data)
@@ -332,11 +414,89 @@ local TEXT: { TextCommand } = {
 		About = "Play the opening cutscene again",
 		Args = 0,
 		Run = function(_, t)
-			t:SetAttribute("PlayIntro", false)
-			task.defer(function()
-				t:SetAttribute("PlayIntro", true)
-			end)
+			-- (an event, not an attribute: flipping PlayIntro off and on in one frame never reached the client)
+			Net.event("PlayIntro"):FireClient(t)
 			return `Playing the intro for {t.Name}`
+		end,
+	},
+	{
+		Alias = "/tutorial",
+		Usage = "[player]",
+		About = "Play the new-player tutorial again",
+		Args = 0,
+		Run = function(_, t)
+			Net.event("PlayTutorial"):FireClient(t)
+			return `Playing the tutorial for {t.Name}`
+		end,
+	},
+	{
+		Alias = "/admin",
+		Usage = "<player>",
+		About = "Owner only: make someone an admin (in this server, or anyone by username)",
+		Args = 1,
+		Run = function(a, _, _, args)
+			if not isOwner(a.UserId) then
+				return "Only the owner can make admins"
+			end
+			local userId, name = resolveUser(args[1])
+			if not userId then
+				return `No player called "{args[1] or ""}"`
+			end
+			if isOwner(userId) or granted[tostring(userId)] then
+				return `{name} is already an admin`
+			end
+			local saved, err = setGranted(userId, name)
+			local target = Players:GetPlayerByUserId(userId)
+			if target then
+				Notify:FireClient(
+					target,
+					"You are now an admin! Open the panel with the 👑",
+					Color3.fromRGB(255, 220, 90)
+				)
+			end
+			return `{name} is now an admin` .. (if saved then "" else ` ({err})`)
+		end,
+	},
+	{
+		Alias = "/unadmin",
+		Usage = "<player>",
+		About = "Owner only: take someone's admin away",
+		Args = 1,
+		Run = function(a, _, _, args)
+			if not isOwner(a.UserId) then
+				return "Only the owner can remove admins"
+			end
+			local word = args[1] or ""
+			local userId, name = nil, nil
+			for key, n in granted do
+				if string.lower(n) == string.lower(word) or key == word then
+					userId, name = tonumber(key), n
+				end
+			end
+			if not userId then
+				userId, name = resolveUser(word)
+			end
+			if not userId or not granted[tostring(userId)] then
+				return if userId and isOwner(userId)
+					then "The owner is always an admin"
+					else `{name or word} isn't an admin`
+			end
+			local saved, err = setGranted(userId, nil)
+			return `{name} is no longer an admin` .. (if saved then "" else ` ({err})`)
+		end,
+	},
+	{
+		Alias = "/admins",
+		Usage = "",
+		About = "List the admins",
+		Args = 0,
+		Run = function()
+			local names = {}
+			for _, n in granted do
+				table.insert(names, n)
+			end
+			table.sort(names)
+			return if #names == 0 then "No admins besides the owner" else "Admins: " .. table.concat(names, ", ")
 		end,
 	},
 	{
@@ -398,13 +558,42 @@ end
 
 function AdminService.playerAdded(player: Player)
 	player:SetAttribute("IsAdmin", isAdmin(player))
+	player:SetAttribute("IsOwner", isOwner(player.UserId))
 end
 
 function AdminService.init()
+	-- Studio playtests only: automated tests run admin commands for any player (ServerStorage.SAFD_TestHook:Invoke(
+	-- playerName, "/addmoney 1M")); "__data" returns their saved data as JSON
+	if game:GetService("RunService"):IsStudio() then
+		local hook = Instance.new("BindableFunction")
+		hook.Name = "SAFD_TestHook"
+		hook.OnInvoke = function(name: string, line: string)
+			local p = Players:FindFirstChild(name) :: Player?
+			if not p then
+				return false, "no player"
+			end
+			if line == "__data" then
+				return true, game:GetService("HttpService"):JSONEncode(DataService.get(p))
+			end
+			return runLine(p, line)
+		end
+		hook.Parent = game:GetService("ServerStorage")
+	end
+	local storeOk, store = pcall(function()
+		return DataStoreService:GetDataStore(ADMIN_STORE)
+	end)
+	adminStore = if storeOk then store else nil
 	Players.PlayerAdded:Connect(AdminService.playerAdded)
 	for _, p in Players:GetPlayers() do
 		AdminService.playerAdded(p)
 	end
+	task.spawn(function()
+		-- (and again now and then, so admins made or removed in another server count here too)
+		while true do
+			loadGranted()
+			task.wait(60)
+		end
+	end)
 	Net.func("AdminAction").OnServerInvoke = function(admin: Player, action: unknown, line: unknown)
 		if not isAdmin(admin) then
 			return false, "Admins only"
@@ -414,7 +603,14 @@ function AdminService.init()
 			for _, c in TEXT do
 				table.insert(list, { Alias = c.Alias, Usage = c.Usage, About = c.About })
 			end
-			return true, { Commands = list }
+			local admins = {}
+			for key, n in granted do
+				table.insert(admins, { UserId = tonumber(key), Name = n })
+			end
+			table.sort(admins, function(x, y)
+				return x.Name < y.Name
+			end)
+			return true, { Commands = list, Owner = isOwner(admin.UserId), Admins = admins }
 		elseif action == "run" and type(line) == "string" and #line < 200 then
 			local ok, message = runLine(admin, line)
 			Notify:FireClient(

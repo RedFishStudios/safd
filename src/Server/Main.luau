@@ -17,6 +17,7 @@ local TrainingService = require(Server.TrainingService)
 local ShopService = require(Server.ShopService)
 local AdminService = require(Server.AdminService)
 local AvatarService = require(Server.AvatarService)
+local LeaderboardService = require(Server.LeaderboardService)
 
 MapService.init()
 DataService.init()
@@ -26,6 +27,7 @@ TrainingService.init(AnimalService.refreshStats)
 ShopService.init()
 AdminService.init()
 AvatarService.init()
+task.spawn(LeaderboardService.init)
 
 local function onPlayerAdded(player: Player)
 	local data = DataService.load(player)
@@ -42,11 +44,23 @@ local function onPlayerAdded(player: Player)
 	TrainingService.playerLoaded(player)
 	ShopService.playerLoaded(player)
 	player:SetAttribute("Loaded", true)
+	if not data.SeenTutorial then
+		player:SetAttribute("PlayTutorial", true)
+	end
 	if not data.SeenIntro then
 		data.SeenIntro = true
 		player:SetAttribute("PlayIntro", true)
 	end
 end
+
+local Net = require(Shared.Net)
+Net.event("TutorialDone").OnServerEvent:Connect(function(player)
+	local data = DataService.get(player)
+	if data then
+		data.SeenTutorial = true
+	end
+	player:SetAttribute("PlayTutorial", false)
+end)
 
 Players.PlayerAdded:Connect(onPlayerAdded)
 for _, player in Players:GetPlayers() do

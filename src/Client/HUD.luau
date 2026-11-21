@@ -99,7 +99,7 @@ end
 
 function HUD.toast(text: string, color: Color3?, duration: number?)
 	local item = label(toastList, {
-		Size = UDim2.new(1, 0, 0, 30),
+		Size = UDim2.fromScale(1, 0.16),
 		Text = text,
 		TextColor3 = color or Color3.new(1, 1, 1),
 		TextTransparency = 1,
@@ -121,7 +121,8 @@ function HUD.plusOne(text: string?)
 	local pop = label(gui, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5 + rng:NextNumber(-0.06, 0.06), 0.55 + rng:NextNumber(-0.03, 0.03)),
-		Size = UDim2.fromOffset(170, 54),
+		Size = UDim2.fromScale(0.28, 0.07),
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
 		Text = text or "+1 Speed",
 		TextColor3 = Color3.fromRGB(110, 255, 120),
 		Rotation = rng:NextNumber(-8, 8),
@@ -147,7 +148,7 @@ function HUD.init()
 	gui = Instance.new("ScreenGui")
 	gui.Name = "SAFD_HUD"
 	gui.ResetOnSpawn = false
-	gui.DisplayOrder = 20
+	gui.DisplayOrder = 70 -- (above the shops: "you need $..." used to show behind them)
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.Parent = player:WaitForChild("PlayerGui")
 
@@ -165,8 +166,8 @@ function HUD.init()
 
 	hintLabel = label(gui, {
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -140),
-		Size = UDim2.new(0.6, 0, 0, 28),
+		Position = UDim2.fromScale(0.5, 0.86),
+		Size = UDim2.fromScale(0.6, 0.035),
 		Visible = false,
 	})
 

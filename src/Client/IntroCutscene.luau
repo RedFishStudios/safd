@@ -1,13 +1,14 @@
 -- The opening cutscene, on your first visit (Server/Main sets PlayIntro; /intro in the admin panel replays it):
---   1. peace: the camera drifts over Grassy Meadows, chickens peck and wander, a cow grazes, a bunny hops ...
+--   1. peace: the camera drifts over Grassy Meadows, where eggs from every biome lie in the grass, wobbling now and then
 --   2. disaster: the ground rumbles, a wall of lava erupts at the far end of the meadow with a roar
---   3. fear: quick close-ups of the animals, trembling, a drop of sweat running down the side of the head, "!",
---      scared high calls (cluck! moo!)
---   4. stampede: they flee towards the camera, calling out, the lava rolling after them
---   5. the hero: a masked hero (you, with a mask and a cape) drops in from the sky and sprints through the chaos:
---      slides under a lava ball, double jumps a rolling boulder, dodges a lava geyser, hurdles a falling tree, leaps a
---      lava crack, and scoops up three stranded animals on the way (stacked on the head, like in the game)
---   6. title: slow motion, the hero runs at the camera, "SAVE THE ANIMALS!"
+--   3. fear: every egg breaks into a huge cartoon sweat drop (on its upper side, dripping and bouncing), trembles and
+--      hops in panic; quick close-ups of three of them, "!!", little panicked squeaks
+--   4. panic: a wide shot of all the eggs hopping in place as the lava rolls towards them
+--   5. the hero: a masked hero (you, with a mask and a cape) drops in from the sky and sprints through the chaos,
+--      weaving from egg to egg: every egg pops up onto the head stack (like in the game) until all 8 are saved, while
+--      sliding under a lava ball, double jumping a rolling boulder, swerving round a lava geyser, hurdling a falling
+--      tree and leaping a lava crack. A counter on screen counts them: "EGGS SAVED 8/8"
+--   6. title: slow motion, the hero runs at the camera with the tall egg stack, "SAVE EGGS FROM DISASTERS!"
 -- Everything is local (only you see it) and cleaned up afterwards; Skip ends it at any time.
 
 local Players = game:GetService("Players")
@@ -17,12 +18,11 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local AnimalFactory = require(Shared.AnimalFactory)
 local Config = require(Shared.Config)
+local EggFactory = require(Shared.EggFactory)
 local MapStyle = require(Shared.MapStyle)
+local Net = require(Shared.Net)
 
-local AnimalSounds = require(script.Parent.AnimalSounds)
-local AnimalVisuals = require(script.Parent.AnimalVisuals)
 local ChaseFx = require(script.Parent.ChaseFx)
 local Movement = require(script.Parent.Movement)
 local Sfx = require(script.Parent.Sfx)
@@ -42,19 +42,94 @@ local GROUND = 1
 local LAVA_Z = -585
 -- the timeline (seconds)
 local T_ERUPT = 3.6
+local T_SWEAT = T_ERUPT + 0.9 -- the sweat breaks out
 local T_FEAR = 5.4 -- three close-ups, FEAR_SHOT each
 local FEAR_SHOT = 0.75
-local T_FLEE = T_FEAR + FEAR_SHOT * 3
-local T_DROP = T_FLEE + 1.4
+local T_PANIC = T_FEAR + FEAR_SHOT * 3
+local T_DROP = T_PANIC + 1.4
 local T_RUN = T_DROP + 0.8
-local T_SLOW = T_RUN + 7.2
-local END_T = T_SLOW + 3.4
+local T_SLOW = T_RUN + 8.1
+local END_T = T_SLOW + 3.6
 local HERO_START_Z = -640
 local HERO_SPEED = 32
+-- event times, all on the run
+local E_SLIDE = T_RUN + 0.7 -- under a lava ball
+local E_DJ = T_RUN + 2.4 -- over the boulder
+local E_GEYSER = T_RUN + 3.0 -- a geyser in the path: swerve round it
+local E_TREE = T_RUN + 3.7 -- a tree topples across the path: hurdle it
+local E_CRACK = T_RUN + 5.1 -- the ground splits: leap it
+
+-- the eggs, each picked up this long after the run starts (between the stunts), biome egg design (Shared/EggFactory)
+local CAST = {
+	{ at = 0.25, biome = 1 },
+	{ at = 1.6, biome = 2 },
+	{ at = 2.1, biome = 1 },
+	{ at = 3.6, biome = 3 },
+	{ at = 4.75, biome = 4 },
+	{ at = 6.3, biome = 5 },
+	{ at = 6.9, biome = 2 },
+	{ at = 7.6, biome = 6 },
+}
+local GROUND_HEIGHT = { 3.6, 4, 4.4, 4.8, 5.2, 5.8 } -- an egg's height in the grass, by biome (cutscene sized)
+local FEAR_STARS = { 1, 4, 8 } -- the close-ups (CAST indices)
+-- the hero's weave across the meadow (seconds into the run, x offset): still at each egg, at X0 for the boulder
+local WEAVE = {
+	{ 0, 0 },
+	{ 0.25, -5 },
+	{ 0.9, 0 },
+	{ 1.6, 6 },
+	{ 2.1, 0 },
+	{ 3.3, 0 },
+	{ 4.75, -6 },
+	{ 5.5, 0 },
+	{ 6.3, 5 },
+	{ 6.9, -4 },
+	{ 7.6, 3 },
+}
+
+local SWEAT_DIR = Vector3.new(0.94, 0, -0.34).Unit -- the side of the egg it runs down (the side the camera sees)
+local SWEAT_CYCLE = 1.15
 
 local function smooth(k: number): number
 	k = math.clamp(k, 0, 1)
 	return k * k * (3 - 2 * k)
+end
+
+local function backOut(k: number): number
+	k = math.clamp(k, 0, 1)
+	local c1 = 1.70158
+	return 1 + (c1 + 1) * (k - 1) ^ 3 + c1 * (k - 1) ^ 2
+end
+
+-- the hero's line: running from T_RUN, slow motion from T_SLOW
+local function heroZ(t: number): number
+	if t < T_RUN then
+		return HERO_START_Z
+	end
+	local fast = math.min(t, T_SLOW) - T_RUN
+	local slow = math.max(0, t - T_SLOW) * 0.35
+	return HERO_START_Z - HERO_SPEED * (fast + slow)
+end
+
+local function heroX(t: number): number
+	local r = t - T_RUN
+	local x = WEAVE[#WEAVE][2]
+	if r <= WEAVE[1][1] then
+		x = WEAVE[1][2]
+	else
+		for i = 1, #WEAVE - 1 do
+			local a, b = WEAVE[i], WEAVE[i + 1]
+			if r < b[1] then
+				x = a[2] + (b[2] - a[2]) * smooth((r - a[1]) / (b[1] - a[1]))
+				break
+			end
+		end
+	end
+	-- the swerve round the geyser
+	if t >= E_GEYSER - 0.1 and t < E_GEYSER + 0.9 then
+		x += math.sin(math.pi * (t - (E_GEYSER - 0.1)) / 1.0) * 9
+	end
+	return X0 + x
 end
 
 local function part(folder: Instance, props: { [string]: any }): Part
@@ -118,69 +193,33 @@ local function label(parent: Instance, props: { [string]: any }): TextLabel
 	return l
 end
 
--- "!" (or "!!") over an animal
+local function punch(gui: GuiObject, from: number)
+	local sc = gui:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	sc.Scale = from
+	sc.Parent = gui
+	TweenService:Create(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+-- "!" (or "!!") over an egg
 local function exclaim(model: Model, text: string)
+	local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	if not root then
+		return
+	end
+	local h = model:GetAttribute("Height") or 4
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "Exclaim"
 	bb.Size = UDim2.fromOffset(60, 60)
-	bb.StudsOffsetWorldSpace = Vector3.new(0, (model:GetAttribute("Height") or 4) + 1.5, 0)
-	bb.AlwaysOnTop = true
-	label(bb, {
+	bb.StudsOffsetWorldSpace = Vector3.new(0, h * 0.5 + 1.6, 0)
+	bb.AlwaysOnTop = false
+	local l = label(bb, {
 		Size = UDim2.fromScale(1, 1),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Text = text,
 		TextColor3 = Color3.fromRGB(255, 60, 40),
 	})
-	bb.Parent = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-	local sc = Instance.new("UIScale")
-	sc.Scale = 0.2
-	sc.Parent = bb:FindFirstChildOfClass("TextLabel")
-	TweenService:Create(sc, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-end
-
--- a drop of sweat running down the side of an animal's head
-local function sweat(model: Model)
-	local h = model:GetAttribute("Height") or 4
-	local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-	if not root then
-		return
-	end
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "Sweat"
-	bb.Size = UDim2.fromOffset(34, 44)
-	bb.AlwaysOnTop = true
-	local start = Vector3.new(h * 0.32, h * 0.95, 0)
-	bb.StudsOffsetWorldSpace = start
-	local drop = Instance.new("Frame")
-	drop.AnchorPoint = Vector2.new(0.5, 0.5)
-	drop.Position = UDim2.fromScale(0.5, 0.5)
-	drop.Size = UDim2.fromScale(0.55, 0.75)
-	drop.BackgroundColor3 = Color3.fromRGB(120, 200, 255)
-	drop.Rotation = 20
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0.5, 0)
-	c.Parent = drop
-	local st = Instance.new("UIStroke")
-	st.Thickness = 2
-	st.Color = Color3.fromRGB(30, 80, 150)
-	st.Parent = drop
-	local shine = Instance.new("Frame")
-	shine.Position = UDim2.fromScale(0.25, 0.2)
-	shine.Size = UDim2.fromScale(0.25, 0.3)
-	shine.BackgroundColor3 = Color3.new(1, 1, 1)
-	shine.BorderSizePixel = 0
-	local c2 = Instance.new("UICorner")
-	c2.CornerRadius = UDim.new(0.5, 0)
-	c2.Parent = shine
-	shine.Parent = drop
-	drop.Parent = bb
 	bb.Parent = root
-	TweenService:Create(bb, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		StudsOffsetWorldSpace = start - Vector3.new(0, h * 0.35, 0),
-	}):Play()
-	task.delay(0.9, function()
-		bb:Destroy()
-	end)
+	punch(l, 0.2)
 end
 
 -- the hero: a copy of your own avatar, with a mask and a cape
@@ -295,18 +334,91 @@ local function loadTrack(
 	return t
 end
 
-local function animal(folder: Instance, id: string, at: Vector3, yaw: number): Model?
-	local ok, model = pcall(AnimalFactory.create, id, Config.animalHeight(id), Config.animalHeight(id) * 2.2)
+-- an egg model and its spinning parts (the Mythic egg's halo, the radioactive egg's barrels: Shared/EggFactory)
+type Spinner = { model: Model, rel: CFrame, speed: number }
+local function makeEgg(biome: number, height: number, design: number?): (Model?, { Spinner })
+	local ok, model = pcall(EggFactory.create, biome, height, design)
 	if not ok or not model then
-		return nil
+		return nil, {}
 	end
-	model:PivotTo(CFrame.new(at) * CFrame.Angles(0, yaw, 0))
-	model.Parent = folder
-	return model
+	local spinners: { Spinner } = {}
+	local pivot = model:GetPivot()
+	for attr, speed in { Halo = 0.8, Orbit = 0.6 } do
+		local name = model:GetAttribute(attr)
+		local child = name and model:FindFirstChild(name)
+		if child and child:IsA("Model") then
+			table.insert(spinners, { model = child, rel = pivot:Inverse() * child:GetPivot(), speed = speed })
+		end
+	end
+	return model, spinners
 end
 
-type Herd = { model: Model, id: string, home: Vector3, phase: number, speed: number, fled: boolean }
-type Stranded = { model: Model, id: string, z: number, taken: boolean, called: boolean }
+local function placeEgg(model: Model, spinners: { Spinner }, cf: CFrame, t: number)
+	model:PivotTo(cf)
+	for _, s in spinners do
+		s.model:PivotTo(cf * CFrame.Angles(0, t * s.speed, 0) * s.rel)
+	end
+end
+
+-- the sweat drop: the plain sweat emoji 💧 (user 2026-11-21: the glassy ball drop "looks weird", like 😅's drop
+-- instead), on a billboard so it always faces the camera; it pops in, bounces and drips down the shell
+type SweatPart = { p: BasePart, gui: BillboardGui, size: number }
+local function makeSweat(folder: Instance, d: number): { SweatPart }
+	local model = Instance.new("Model")
+	model.Name = "SweatDrop"
+	local p = part(model, {
+		Name = "Drop",
+		Size = Vector3.one * 0.2,
+		Transparency = 1,
+		CastShadow = false,
+	})
+	local gui = Instance.new("BillboardGui")
+	gui.Adornee = p
+	gui.LightInfluence = 0
+	gui.Size = UDim2.fromScale(d, d * 1.2)
+	gui.Enabled = false
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.fromScale(1, 1)
+	l.Text = "💧"
+	l.TextScaled = true
+	l.Rotation = -12
+	l.Parent = gui
+	gui.Parent = p
+	model.Parent = folder
+	return { { p = p, gui = gui, size = d } }
+end
+
+local function placeSweat(sweat: { SweatPart }, at: CFrame, scale: number)
+	for _, s in sweat do
+		s.gui.Enabled = scale >= 0.04
+		if scale >= 0.04 then
+			s.p.CFrame = at
+			s.gui.Size = UDim2.fromScale(s.size * scale, s.size * 1.2 * scale)
+		end
+	end
+end
+
+type Egg = {
+	model: Model?,
+	spinners: { Spinner },
+	carry: Model?,
+	carrySpinners: { Spinner },
+	carryH: number,
+	biome: number,
+	h: number,
+	bodyY: number,
+	home: Vector3,
+	yaw: number,
+	phase: number,
+	pickAt: number,
+	sweatAt: number,
+	sweat: { SweatPart }?,
+	spray: ParticleEmitter?,
+	taken: boolean,
+	takenAt: number,
+	from: Vector3,
+}
 
 local playing = false
 
@@ -344,7 +456,7 @@ function IntroCutscene.play()
 	folder.Parent = Workspace
 	local cam = Workspace.CurrentCamera
 
-	-- screen: fade, subtitles, title, skip
+	-- screen: fade, subtitles, egg counter, title, skip
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "SAFD_Intro"
 	gui.IgnoreGuiInset = true
@@ -363,10 +475,18 @@ function IntroCutscene.play()
 		Text = "",
 		ZIndex = 5,
 	})
+	local counter = label(gui, {
+		Position = UDim2.fromScale(0.5, 0.17),
+		Size = UDim2.fromScale(0.42, 0.065),
+		Text = "",
+		TextColor3 = Color3.fromRGB(255, 240, 170),
+		Visible = false,
+		ZIndex = 5,
+	})
 	local title = label(gui, {
 		Position = UDim2.fromScale(0.5, 0.42),
-		Size = UDim2.fromScale(0.8, 0.16),
-		Text = "SAVE THE ANIMALS!",
+		Size = UDim2.fromScale(0.9, 0.16),
+		Text = string.upper(Config.GameName) .. "!",
 		TextColor3 = Color3.fromRGB(255, 210, 60),
 		Visible = false,
 		ZIndex = 6,
@@ -378,14 +498,15 @@ function IntroCutscene.play()
 	local tag = label(gui, {
 		Position = UDim2.fromScale(0.5, 0.55),
 		Size = UDim2.fromScale(0.6, 0.06),
-		Text = "Rescue them before the disaster catches you!",
+		Text = "Rescue every egg before the disaster catches you!",
 		Visible = false,
 		ZIndex = 6,
 	})
 	local skip = Instance.new("TextButton")
 	skip.AnchorPoint = Vector2.new(1, 1)
-	skip.Position = UDim2.new(1, -20, 1, -20)
-	skip.Size = UDim2.fromOffset(130, 44)
+	skip.Position = UDim2.fromScale(0.985, 0.97)
+	skip.Size = UDim2.fromScale(0.18, 0.06)
+	skip.SizeConstraint = Enum.SizeConstraint.RelativeYY
 	skip.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 	skip.BackgroundTransparency = 0.25
 	skip.Font = Enum.Font.FredokaOne
@@ -427,43 +548,54 @@ function IntroCutscene.play()
 	ChaseFx.letterbox(true)
 	cam.CameraType = Enum.CameraType.Scriptable
 
-	-- the herd
-	local herd: { Herd } = {}
-	local cast = { "Chicken", "Cow", "Bunny", "Horse", "Goat", "Chicken", "Corgi", "Chicken", "Bunny" }
-	for i, id in cast do
-		local home = Vector3.new(X0 + rng:NextNumber(-34, 34), GROUND, -660 - rng:NextNumber(-25, 30))
-		-- (the close-up stars stand nearer the camera, apart from each other)
-		if i == 1 then
-			home = Vector3.new(X0 - 14, GROUND, -680)
-		elseif i == 2 then
-			home = Vector3.new(X0 + 12, GROUND, -672)
-		elseif i == 3 then
-			home = Vector3.new(X0 - 2, GROUND, -690)
+	-- the eggs, lying along the hero's route (each where the hero will be when it picks it up), plus the smaller
+	-- copy that rides on the head stack (built now, so nothing is built mid-run)
+	local eggs: { Egg } = {}
+	for i, c in CAST do
+		local h = GROUND_HEIGHT[c.biome]
+		local pickAt = T_RUN + c.at
+		local home = Vector3.new(heroX(pickAt), GROUND, heroZ(pickAt))
+		-- (the eggs show both designs, mixed: user 2026-11-22)
+		local design = (i % EggFactory.DesignCount) + 1
+		local model, spinners = makeEgg(c.biome, h, design)
+		if not model then
+			continue
 		end
-		local model = animal(folder, id, home, rng:NextNumber(0, math.pi * 2))
-		if model then
-			AnimalVisuals.play(model, if i % 2 == 0 then "Walk" else "Idle")
-			table.insert(herd, {
-				model = model,
-				id = id,
-				home = home,
-				phase = rng:NextNumber(0, math.pi * 2),
-				speed = rng:NextNumber(22, 28),
-				fled = false,
-			})
+		local carryH = Config.CarryEggHeight[c.biome] or 2.6
+		local carry, carrySpinners = makeEgg(c.biome, carryH, design)
+		local root = model.PrimaryPart :: BasePart
+		local e: Egg = {
+			model = model,
+			spinners = spinners,
+			carry = carry,
+			carrySpinners = carrySpinners,
+			carryH = carryH,
+			biome = c.biome,
+			h = h,
+			bodyY = root.Position.Y - h / 2 - model:GetPivot().Position.Y,
+			home = home,
+			yaw = math.pi + rng:NextNumber(-0.5, 0.5),
+			phase = rng:NextNumber(0, 10),
+			pickAt = pickAt,
+			sweatAt = T_SWEAT + (i - 1) * 0.09,
+			sweat = nil,
+			spray = nil,
+			taken = false,
+			takenAt = 0,
+			from = home,
+		}
+		placeEgg(model, spinners, CFrame.new(home) * CFrame.Angles(0, e.yaw, 0), 0)
+		model.Parent = folder
+		table.insert(eggs, e)
+	end
+	local fearStars: { Egg } = {}
+	for _, i in FEAR_STARS do
+		local e = eggs[i]
+		if e then
+			table.insert(fearStars, e)
 		end
 	end
-	-- the stranded ones, frozen with fear right on the hero's path
-	local heroZ: (number) -> number
-	local stranded: { Stranded } = {}
-	for _, s in { { "Chicken", T_RUN + 1.6 }, { "Bunny", T_RUN + 4.2 }, { "Corgi", T_RUN + 6.2 } } do
-		local z = HERO_START_Z - HERO_SPEED * (s[2] - T_RUN)
-		local model = animal(folder, s[1], Vector3.new(X0, GROUND, z), math.pi)
-		if model then
-			AnimalVisuals.play(model, "Idle")
-			table.insert(stranded, { model = model, id = s[1], z = z, taken = false, called = false })
-		end
-	end
+	local total = #eggs
 
 	-- the lava wall (under the ground until it erupts)
 	local lava = Instance.new("Model")
@@ -576,23 +708,7 @@ function IntroCutscene.play()
 		Transparency = 1,
 	})
 
-	-- the hero's line: running from T_RUN, slow motion from T_SLOW
-	heroZ = function(t: number): number
-		if t < T_RUN then
-			return HERO_START_Z
-		end
-		local fast = math.min(t, T_SLOW) - T_RUN
-		local slow = math.max(0, t - T_SLOW) * 0.35
-		return HERO_START_Z - HERO_SPEED * (fast + slow)
-	end
-	-- event times, all on the run
-	local E_SLIDE = T_RUN + 0.7 -- under a lava ball
-	local E_DJ = T_RUN + 2.4 -- over the boulder
-	local E_GEYSER = T_RUN + 3.0 -- a geyser in the path: sidestep
-	local E_TREE = T_RUN + 3.7 -- a tree topples across the path: hurdle it
-	local E_CRACK = T_RUN + 5.1 -- the ground splits: leap it
-	local carriedList: { Model } = {}
-
+	local carriedList: { Egg } = {}
 	local events: { [string]: boolean } = {}
 	local function once(name: string): boolean
 		if events[name] then
@@ -602,9 +718,8 @@ function IntroCutscene.play()
 		return true
 	end
 	local nextRain = T_RUN + 0.3
-	local nextPanic = T_FLEE
+	local nextSqueak = T_SWEAT
 	local t0 = os.clock()
-	local lastT = 0
 	local heroY = 200
 
 	local connection
@@ -622,6 +737,15 @@ function IntroCutscene.play()
 		TweenService:Create(fade, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
 		task.wait(0.4)
 		folder:Destroy()
+		for _, e in eggs do
+			-- (the head-stack copies of the eggs not picked up yet were never parented to the folder)
+			if e.carry then
+				e.carry:Destroy()
+			end
+			if e.model then
+				e.model:Destroy()
+			end
+		end
 		for d, v in hidden do
 			if d.Parent then
 				d.LocalTransparencyModifier = v
@@ -633,6 +757,7 @@ function IntroCutscene.play()
 		restoreUi()
 		title.Visible = false
 		tag.Visible = false
+		counter.Visible = false
 		subtitle.Text = ""
 		skip.Visible = false
 		TweenService:Create(fade, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
@@ -643,64 +768,92 @@ function IntroCutscene.play()
 	end
 
 	TweenService:Create(fade, TweenInfo.new(0.8), { BackgroundTransparency = 1 }):Play()
-	say("Far away, the animals lived happily in the meadows...")
-
-	local fearStars = { herd[1], herd[2], herd[3] }
+	say("Far away, the eggs lay safe and sound in the meadows...")
 
 	connection = RunService.RenderStepped:Connect(function()
 		local t = os.clock() - t0
-		local dt = math.clamp(t - lastT, 0, 0.1)
-		lastT = t
 		if skipped or t >= END_T then
 			task.spawn(finish)
 			return
 		end
+		local shotIndex = if t >= T_FEAR and t < T_PANIC
+			then math.clamp(math.floor((t - T_FEAR) / FEAR_SHOT) + 1, 1, 3)
+			else 0
+		local star = fearStars[shotIndex]
 
-		-- the herd: grazing, then trembling, then the stampede
-		for i, a in herd do
-			if t < T_FEAR then
-				local w = t * 0.45 + a.phase
-				local r = if i % 2 == 0 then 4 else 1.2
-				local p = a.home + Vector3.new(math.cos(w) * r, 0, math.sin(w) * r)
-				local ahead = a.home + Vector3.new(math.cos(w + 0.2) * r, 0, math.sin(w + 0.2) * r)
-				a.model:PivotTo(CFrame.lookAt(p, ahead))
-			elseif t < T_FLEE then
-				-- frozen in fear, facing the eruption, trembling
-				local j = Vector3.new(rng:NextNumber(-1, 1), 0, rng:NextNumber(-1, 1)) * 0.12
-				a.model:PivotTo(CFrame.lookAt(a.home + j, a.home + Vector3.new(0, 0, 1)))
+		-- the eggs in the grass: a lazy wobble, then panic (trembling, hopping, sweating) until the hero gets them
+		for i, e in eggs do
+			local model = e.model
+			if e.taken or not model then
+				continue
+			end
+			local h = e.h
+			local cf
+			if t < T_ERUPT then
+				local c = (t + e.phase) % 3.2
+				local w = if c < 0.8 then math.sin(c * 25) * 0.07 * (1 - c / 0.8) else 0
+				cf = CFrame.new(e.home) * CFrame.Angles(w, e.yaw, w * 0.6)
 			else
-				if not a.fled then
-					a.fled = true
-					AnimalVisuals.play(a.model, "Walk")
-					exclaim(a.model, "!")
+				local panic = t >= e.sweatAt
+				local frantic = if t >= T_PANIC then 1.5 else 1
+				local shake = (if panic then 0.06 else 0.035) * h
+				local j = Vector3.new(rng:NextNumber(-1, 1), 0, rng:NextNumber(-1, 1)) * shake
+				local hop = 0
+				if panic then
+					local k = (t * 2.1 * frantic + e.phase) % 1
+					hop = if k < 0.45 then math.sin(math.pi * k / 0.45) * 0.22 * h else 0
 				end
-				local cf = a.model:GetPivot()
-				local p = cf.Position + Vector3.new(0, 0, -a.speed * dt)
-				a.model:PivotTo(CFrame.lookAt(p, p + Vector3.new(0, 0, -1)))
+				local tilt = math.sin(t * 38 + e.phase) * (if panic then 0.08 else 0.04)
+				cf = CFrame.new(e.home + j + Vector3.new(0, hop, 0)) * CFrame.Angles(tilt, e.yaw, -tilt * 0.7)
 			end
-		end
-		-- panicked calls all through the stampede
-		if t >= nextPanic and t < T_SLOW and #herd > 0 then
-			nextPanic = t + rng:NextNumber(0.35, 0.7)
-			local a = herd[rng:NextInteger(1, #herd)]
-			AnimalSounds.call(a.model, a.id, rng:NextNumber(1.25, 1.45), 1.6)
-		end
+			placeEgg(model, e.spinners, cf, t)
 
-		-- the stranded ones tremble and sweat, and call out as the hero comes
-		for _, s in stranded do
-			if not s.taken and t >= T_FEAR then
-				local base = Vector3.new(X0, GROUND, s.z)
-				local j = Vector3.new(rng:NextNumber(-1, 1), 0, rng:NextNumber(-1, 1)) * 0.1
-				s.model:PivotTo(CFrame.lookAt(base + j, base + j + Vector3.new(0, 0, 1)))
-				if once("strandMark" .. s.z) then
-					exclaim(s.model, "!!")
+			-- the sweat drop: pops out on the upper side, bounces, drips down the shell, pops out again
+			if t >= e.sweatAt then
+				local root = model.PrimaryPart
+				if not e.sweat then
+					e.sweat = makeSweat(folder, h * 0.34)
+					if root then
+						e.spray = emitter(root, {
+							Name = "SweatSpray",
+							Texture = SPARK,
+							Color = ColorSequence.new(Color3.fromRGB(150, 215, 255)),
+							Size = NumberSequence.new({
+								NumberSequenceKeypoint.new(0, 0.12 * h),
+								NumberSequenceKeypoint.new(1, 0),
+							}),
+							Lifetime = NumberRange.new(0.35, 0.6),
+							Speed = NumberRange.new(1.6 * h, 2.4 * h),
+							Acceleration = Vector3.new(0, -9 * h, 0),
+							EmissionDirection = Enum.NormalId.Top,
+							SpreadAngle = Vector2.new(55, 55),
+							Rate = 7,
+						})
+					end
+					if i == 1 then
+						ChaseFx.play("Pop", 0.8, 1.9)
+					end
 				end
-				if t >= T_RUN and not s.called and heroZ(t) - s.z < 45 then
-					s.called = true
-					sweat(s.model)
-					AnimalSounds.call(s.model, s.id, 1.4, 1.8)
+				local sweat = e.sweat :: { SweatPart }
+				local age = t - e.sweatAt
+				local u = (age % SWEAT_CYCLE) / SWEAT_CYCLE
+				local scale = if u < 0.18 then backOut(u / 0.18) elseif u > 0.86 then 1 - (u - 0.86) / 0.14 else 1
+				scale *= 1 + 0.12 * math.sin(t * 17)
+				if star == e then
+					scale *= 1.3 -- (a bigger one in the close-up)
 				end
+				local yFrac = 0.8 - 0.3 * smooth((u - 0.25) / 0.6)
+				local r = EggFactory.radiusAt(yFrac * 10) * h / 10
+				local surface = (cf * CFrame.new(0, e.bodyY + yFrac * h, 0)).Position
+				local d = h * 0.34
+				local at = CFrame.new(surface + SWEAT_DIR * (r + d * 0.25)) * CFrame.Angles(0, 0, 0.3)
+				placeSweat(sweat, at, scale)
 			end
+		end
+		-- little panicked squeaks
+		if t >= nextSqueak and t < T_SLOW and #carriedList < total then
+			nextSqueak = t + rng:NextNumber(0.3, 0.6)
+			ChaseFx.play("Pop", rng:NextNumber(0.35, 0.6), rng:NextNumber(1.7, 2.3))
 		end
 
 		-- 2. the eruption
@@ -712,7 +865,7 @@ function IntroCutscene.play()
 				Sfx.startChase()
 			end
 			local rise = smooth((t - T_ERUPT) / 1.4)
-			local z = LAVA_Z - math.max(0, t - T_FLEE) * 19
+			local z = LAVA_Z - math.max(0, t - T_PANIC) * 19
 			lavaAt(z, rise)
 			if t < T_FEAR and rng:NextNumber() < 0.3 then
 				burst(
@@ -727,29 +880,36 @@ function IntroCutscene.play()
 				ChaseFx.play("Impact", 1.2, 0.6)
 			end
 		end
-
-		-- 3. fear close-ups: sweat, "!", a scared call, one animal after another
-		if t >= T_FEAR and t < T_FLEE then
-			local shot = math.floor((t - T_FEAR) / FEAR_SHOT) + 1
-			local a = fearStars[shot]
-			if a and once("fear" .. shot) then
-				if shot == 1 then
-					say("The animals were terrified!")
-				end
-				sweat(a.model)
-				exclaim(a.model, "!")
-				AnimalSounds.call(a.model, a.id, 1.45, 2)
-				ChaseFx.play("Pop", 0.5, 1.6)
-			end
+		if t >= T_SWEAT and once("sweat") then
+			say("The eggs broke into a cold sweat!")
 		end
-		if t >= T_FLEE and once("flee") then
+
+		-- 3. fear close-ups: a big sweat drop, "!!", a squeak, one egg after another
+		if star and once("fear" .. shotIndex) then
+			if shotIndex == 1 then
+				say("They were terrified!")
+			end
+			if star.model then
+				exclaim(star.model, "!!")
+			end
+			ChaseFx.play("Pop", 0.9, 2 + shotIndex * 0.1)
+			ChaseFx.kick(4)
+		end
+		-- 4. panic: everyone else gets a "!" too
+		if t >= T_PANIC and once("panic") then
+			say("Who could save them now?")
 			ChaseFx.play("Whoosh", 1, 0.8)
+			for _, e in eggs do
+				if e.model and not table.find(fearStars, e) then
+					exclaim(e.model, "!")
+				end
+			end
 		end
 
 		-- 5. the hero
 		if heroRoot then
 			local z = heroZ(t)
-			local x = X0
+			local x = heroX(t)
 			if t >= T_DROP and t < T_DROP + 0.6 then
 				if once("drop") then
 					say("But one masked hero wasn't scared...")
@@ -777,6 +937,9 @@ function IntroCutscene.play()
 					run:AdjustSpeed(1.4)
 				end
 				ChaseFx.play("Boost", 1, 0.9)
+				counter.Text = `EGGS SAVED: 0/{total}`
+				counter.Visible = true
+				punch(counter, 0.3)
 			end
 			-- a) slide under the lava ball
 			if t >= E_SLIDE - 0.2 and once("slide") then
@@ -817,7 +980,7 @@ function IntroCutscene.play()
 			if t >= E_DJ and t < E_DJ + 0.9 then
 				heroY = GROUND + 3 + math.sin(math.pi * (t - E_DJ) / 0.9) * 10
 			end
-			-- c) the geyser: it bursts up right ahead, the hero swerves round it
+			-- c) the geyser: it bursts up right ahead, the hero swerves round it (heroX)
 			local gz = heroZ(E_GEYSER + 0.4)
 			if t >= E_GEYSER and t < E_GEYSER + 1.4 then
 				if once("geyser") then
@@ -831,9 +994,6 @@ function IntroCutscene.play()
 				geyser.CFrame = CFrame.new(X0, GROUND + h / 2, gz) * CFrame.Angles(0, 0, math.pi / 2)
 			elseif t >= E_GEYSER + 1.4 then
 				geyser.Transparency = 1
-			end
-			if t >= E_GEYSER - 0.1 and t < E_GEYSER + 0.9 then
-				x = X0 + math.sin(math.pi * (t - (E_GEYSER - 0.1)) / 1.0) * 9
 			end
 			-- d) the tree: it topples across the path, the hero hurdles the trunk
 			local tz = heroZ(E_TREE + 0.5)
@@ -884,42 +1044,71 @@ function IntroCutscene.play()
 			if t >= E_CRACK and t < E_CRACK + 0.9 then
 				heroY = GROUND + 3 + math.sin(math.pi * (t - E_CRACK) / 0.9) * 11
 			end
-			-- scoop up the stranded animals as the hero reaches them
-			for _, s in stranded do
-				if not s.taken and z <= s.z + 1 then
-					s.taken = true
-					local ex = s.model:FindFirstChild("Exclaim", true)
-					if ex then
-						ex:Destroy()
+			-- scoop up each egg as the hero reaches it: it pops up onto the head stack, its sweat gone
+			for _, e in eggs do
+				if not e.taken and t >= e.pickAt - 0.05 then
+					e.taken = true
+					e.takenAt = t
+					local model = e.model
+					if model then
+						e.from = model:GetPivot().Position
+						burst(folder, e.from + Vector3.new(0, e.h * 0.5, 0), Color3.fromRGB(255, 240, 120), 30, SPARK)
+						model:Destroy()
+						e.model = nil
 					end
-					table.insert(carriedList, s.model)
-					AnimalVisuals.play(s.model, "Idle")
-					ChaseFx.play("Pop", 1, 1.1 + #carriedList * 0.1)
-					ChaseFx.play("Good", 1, 0.95 + #carriedList * 0.08)
+					if e.sweat then
+						local drop = e.sweat[1] and e.sweat[1].p.Parent
+						if drop then
+							drop:Destroy()
+						end
+						e.sweat = nil
+					end
+					if e.carry then
+						e.carry.Parent = folder
+					end
+					table.insert(carriedList, e)
+					local n = #carriedList
+					ChaseFx.play("Pop", 1, 1.1 + n * 0.08)
+					ChaseFx.play("Good", 1, 0.95 + n * 0.06)
 					ChaseFx.kick(6)
-					burst(
-						folder,
-						s.model:GetPivot().Position + Vector3.new(0, 2, 0),
-						Color3.fromRGB(255, 240, 120),
-						30,
-						SPARK
-					)
-					if #carriedList == 1 then
-						say("He saved them, one by one!")
+					counter.Text = if n >= total then `ALL {total} EGGS SAVED!` else `EGGS SAVED: {n}/{total}`
+					if n >= total then
+						counter.TextColor3 = Color3.fromRGB(255, 215, 60)
+						ChaseFx.play("Confetti", 0.8, 1.1)
+					end
+					punch(counter, 1.5)
+					if n == 1 then
+						say("The hero scooped them up, one by one...")
+					elseif n == total then
+						say("...and saved every single egg!")
 					end
 				end
 			end
 			if t >= T_DROP then
-				heroRoot.CFrame = CFrame.lookAt(Vector3.new(x, heroY, z), Vector3.new(x, heroY, z - 1))
+				local ahead = Vector3.new(heroX(t + 0.1) - x, 0, heroZ(t + 0.1) - z)
+				if ahead.Magnitude < 0.01 then
+					ahead = Vector3.new(0, 0, -1)
+				end
+				local p = Vector3.new(x, heroY, z)
+				heroRoot.CFrame = CFrame.lookAt(p, p + ahead)
 			end
-			-- the carried animals ride stacked on the hero's head
+			-- the saved eggs ride stacked on the hero's head (each flies up there first), swaying on the run
 			local head = hero and hero:FindFirstChild("Head") :: BasePart?
 			local top = if head
 				then head.Position + Vector3.new(0, head.Size.Y / 2 + 0.1, 0)
 				else heroRoot.Position + Vector3.new(0, 3, 0)
-			for _, m in carriedList do
-				m:PivotTo(CFrame.lookAt(top, top + Vector3.new(0, 0, -1)))
-				top += Vector3.new(0, (m:GetAttribute("Height") or 3) * 0.9, 0)
+			local facing = heroRoot.CFrame.Rotation
+			for i, e in carriedList do
+				local carry = e.carry
+				if not carry then
+					continue
+				end
+				local slot = top + facing.RightVector * math.sin(t * 7) * 0.07 * (i - 1)
+				local k = smooth((t - e.takenAt) / 0.32)
+				local pos = e.from:Lerp(slot, k) + Vector3.new(0, math.sin(math.pi * k) * 5, 0)
+				local spin = (1 - k) * math.pi * 2
+				placeEgg(carry, e.carrySpinners, CFrame.new(pos) * facing * CFrame.Angles(0, math.pi + spin, 0), t)
+				top += Vector3.new(0, e.carryH * 0.95, 0)
 			end
 			-- lava rains down around the hero
 			if t >= nextRain and t < T_SLOW then
@@ -937,11 +1126,7 @@ function IntroCutscene.play()
 		if t >= T_SLOW + 0.3 and once("title") then
 			subtitle.Text = ""
 			title.Visible = true
-			local ts = Instance.new("UIScale")
-			ts.Scale = 3
-			ts.Parent = title
-			TweenService:Create(ts, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
-				:Play()
+			punch(title, 3)
 			ChaseFx.play("Impact", 1.2, 0.7)
 			ChaseFx.play("Confetti", 1, 1)
 			ChaseFx.kick(12)
@@ -955,35 +1140,38 @@ function IntroCutscene.play()
 		-- the camera
 		local shake = if t >= T_ERUPT and t < T_FEAR then 0.45 else 0.05
 		local jitter = CFrame.new(rng:NextNumber(-1, 1) * shake, rng:NextNumber(-1, 1) * shake, 0)
+		local stackH = 0
+		for _, e in carriedList do
+			stackH += e.carryH * 0.95
+		end
 		local camCF
 		if t < T_ERUPT then
+			-- a slow drift down over the eggs in the grass
 			local k = smooth(t / T_ERUPT)
-			local a = CFrame.lookAt(Vector3.new(X0 - 70, 42, -775), Vector3.new(X0, 4, -660))
-			local b = CFrame.lookAt(Vector3.new(X0 - 28, 14, -715), Vector3.new(X0, 4, -660))
+			local a = CFrame.lookAt(Vector3.new(X0 + 110, 50, -880), Vector3.new(X0, 4, -770))
+			local b = CFrame.lookAt(Vector3.new(X0 + 30, 14, -735), Vector3.new(X0, 4, -680))
 			camCF = a:Lerp(b, k)
 		elseif t < T_FEAR then
-			-- look up at the eruption
-			local from = CFrame.lookAt(Vector3.new(X0 - 28, 14, -715), Vector3.new(X0, 4, -660))
+			-- look up at the eruption, the first eggs in the foreground
+			local from = CFrame.lookAt(Vector3.new(X0 + 30, 14, -735), Vector3.new(X0, 4, -680))
 			local to = CFrame.lookAt(Vector3.new(X0 + 10, 6, -705), Vector3.new(X0, 34, LAVA_Z))
 			camCF = from:Lerp(to, smooth((t - T_ERUPT) / 0.6))
-		elseif t < T_FLEE then
-			-- close-ups, face on, slowly pushing in
-			local shot = math.clamp(math.floor((t - T_FEAR) / FEAR_SHOT) + 1, 1, 3)
-			local a = fearStars[shot]
-			if a then
-				local h = a.model:GetAttribute("Height") or 4
-				local p = a.home
+		elseif t < T_PANIC then
+			-- close-ups on the sweaty side, the lava behind, slowly pushing in
+			if star then
+				local h = star.h
+				local p = star.home
 				local k = ((t - T_FEAR) % FEAR_SHOT) / FEAR_SHOT
-				local dist = h * (2.4 - 0.5 * k)
-				local eye = p + Vector3.new(h * 0.6, h * 0.85, dist)
-				camCF = CFrame.lookAt(eye, p + Vector3.new(0, h * 0.75, 0))
+				local dist = h * (2.3 - 0.5 * k)
+				local eye = p + Vector3.new(h * 0.9, h * 0.85, -dist)
+				camCF = CFrame.lookAt(eye, p + Vector3.new(0, h * 0.62, 0))
 			else
 				camCF = cam.CFrame
 			end
 		elseif t < T_DROP then
-			-- in front of the stampede, backing away as it comes
-			local lead = -670 - (t - T_FLEE) * 24
-			camCF = CFrame.lookAt(Vector3.new(X0 + 6, 4.5, lead - 22), Vector3.new(X0, 5, lead + 10))
+			-- wide and low: all the eggs hopping in panic, the lava rolling in
+			local k = t - T_PANIC
+			camCF = CFrame.lookAt(Vector3.new(X0 + 18, 6, -775 + k * 6), Vector3.new(X0, 5, -690))
 		elseif t < T_SLOW then
 			local z = heroZ(t)
 			local y = if heroRoot then heroRoot.Position.Y else GROUND + 3
@@ -991,35 +1179,59 @@ function IntroCutscene.play()
 				camCF =
 					CFrame.lookAt(Vector3.new(X0 + 18, GROUND + 4, HERO_START_Z - 14), Vector3.new(X0, y, HERO_START_Z))
 			else
-				-- tracking from the side, swinging round now and then for the big moments
+				-- tracking from the side, slightly ahead (the next egg in view), pulling back as the stack grows;
+				-- swinging round for the tree
+				local x = heroX(t)
 				local side = if t >= E_TREE - 0.4 and t < E_TREE + 1 then -1 else 1
-				local from = Vector3.new(X0 + 20 * side, GROUND + 6 + (y - GROUND - 3) * 0.4, z - 6)
-				camCF = CFrame.lookAt(from, Vector3.new(X0, y, z - 4))
+				local dist = 20 + stackH * 0.45
+				local from = Vector3.new(
+					X0 + (x - X0) * 0.5 + dist * side,
+					GROUND + 6 + (y - GROUND - 3) * 0.4 + stackH * 0.3,
+					z - 7
+				)
+				camCF = CFrame.lookAt(from, Vector3.new(x, y + stackH * 0.4, z - 5))
 			end
 		else
-			-- low, ahead of the hero, slow motion
-			local zc = heroZ(T_SLOW) - 26
-			camCF = CFrame.lookAt(Vector3.new(X0 - 4, GROUND + 2, zc), Vector3.new(X0, GROUND + 6, heroZ(t) + 6))
+			-- low, ahead of the hero, slow motion, backing away; the whole stack in view
+			local zc = heroZ(T_SLOW) - 36 - (t - T_SLOW) * 7
+			camCF = CFrame.lookAt(
+				Vector3.new(X0 - 4, GROUND + 5, zc),
+				Vector3.new(heroX(t), GROUND + 6 + stackH * 0.4, heroZ(t) + 4)
+			)
 		end
 		cam.CFrame = camCF * jitter
 	end)
 end
 
 function IntroCutscene.init()
-	local function check()
-		if player:GetAttribute("PlayIntro") == true then
-			task.spawn(function()
-				-- (wait for the world around Grassy Meadows to be there)
-				pcall(function()
-					player:RequestStreamAroundAsync(Vector3.new(X0, GROUND, -700), 4)
-				end)
-				task.wait(0.5)
-				IntroCutscene.play()
+	local function start()
+		task.spawn(function()
+			-- (after the loading screen: the whole map is there by then, ReplicatedFirst/Loading)
+			local t0 = os.clock()
+			while not player:GetAttribute("WorldReady") and os.clock() - t0 < 120 do
+				task.wait(0.2)
+			end
+			pcall(function()
+				player:RequestStreamAroundAsync(Vector3.new(X0, GROUND, -700), 4)
 			end)
-		end
+			task.wait(0.3)
+			local ok, err = pcall(IntroCutscene.play)
+			if not ok then
+				warn("[IntroCutscene]", err)
+				playing = false
+			end
+		end)
 	end
-	player:GetAttributeChangedSignal("PlayIntro"):Connect(check)
-	check()
+	-- your first visit (Server/Main), and every /intro from the admin panel
+	player:GetAttributeChangedSignal("PlayIntro"):Connect(function()
+		if player:GetAttribute("PlayIntro") == true then
+			start()
+		end
+	end)
+	Net.event("PlayIntro").OnClientEvent:Connect(start)
+	if player:GetAttribute("PlayIntro") == true then
+		start()
+	end
 end
 
 return IntroCutscene

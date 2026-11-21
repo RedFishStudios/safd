@@ -200,7 +200,7 @@ local function pathClear(w: Wanderer, model: Model, to: Vector2): boolean
 	if now - lastFilter > 2 then
 		lastFilter = now
 		local ex: { Instance } = {}
-		for _, name in { "WildAnimals", "BaseAnimals", "PlayerBases" } do
+		for _, name in { "WildEggs", "BaseAnimals", "PlayerBases" } do
 			local f = workspace:FindFirstChild(name)
 			if f then
 				table.insert(ex, f)

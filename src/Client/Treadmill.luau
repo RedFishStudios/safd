@@ -245,6 +245,12 @@ function Treadmill.isTraining(): boolean
 end
 
 function Treadmill.init()
+	-- Studio playtests only: automated tests step off the treadmill (they cannot press Space)
+	if RunService:IsStudio() then
+		player:GetAttributeChangedSignal("TestExitTreadmill"):Connect(function()
+			Treadmill.stop()
+		end)
+	end
 	-- (the "+N" popup, sound and sparkles for each payout: Client/SpeedFx)
 	task.spawn(function()
 		while true do

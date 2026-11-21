@@ -23,6 +23,7 @@ local rng = Random.new()
 
 local Hazards = {}
 Hazards.activeTelegraphs = 0
+Hazards.targets = {} :: { [{ pos: Vector3, radius: number }]: boolean } -- red circles showing right now
 Hazards.activeRollers = 0
 
 local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
@@ -418,6 +419,218 @@ PROJECTILES.Lollipop = function(): (Model, number)
 	return m, 3.5
 end
 
+-- (more of each biome's own things: user, 2026-11-20, "have more projectiles")
+local function addPiece(m: Model, props: { [string]: any }, cf: CFrame?): BasePart
+	local p = part(props)
+	if cf then
+		p.CFrame = cf
+	end
+	p.Parent = m
+	return p
+end
+
+PROJECTILES.Pumpkin = function(): (Model, number)
+	local r = rng:NextNumber(2.8, 3.8)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(r * 2.2, r * 1.6, r * 2.2),
+		Color = Color3.fromRGB(255, 140, 30),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	for i = 0, 3 do
+		addPiece(m, {
+			Size = Vector3.new(0.4, r * 1.5, r * 2.15),
+			Color = Color3.fromRGB(220, 105, 20),
+		}, CFrame.Angles(0, i * math.pi / 4, 0))
+	end
+	addPiece(m, { Size = Vector3.new(0.7, 1.4, 0.7), Color = Color3.fromRGB(70, 120, 40) }, CFrame.new(0, r * 0.85, 0))
+	m.PrimaryPart = core
+	return m, r + 0.5
+end
+
+PROJECTILES.Beehive = function(): (Model, number)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(4.6, 5.6, 4.6),
+		Color = Color3.fromRGB(240, 190, 60),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	for i = -2, 2 do
+		addPiece(m, {
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.5, 4.8 - math.abs(i) * 0.7, 4.8 - math.abs(i) * 0.7),
+			Color = Color3.fromRGB(190, 130, 30),
+		}, CFrame.new(0, i * 1, 0) * CFrame.Angles(0, 0, math.pi / 2))
+	end
+	addPiece(m, { Size = Vector3.new(1.2, 1.2, 0.4), Color = Color3.fromRGB(40, 25, 15) }, CFrame.new(0, -0.6, 2.2))
+	m.PrimaryPart = core
+	return m, 3.4
+end
+
+PROJECTILES.Snowman = function(): (Model, number)
+	local m = Instance.new("Model")
+	local white, snow = Color3.fromRGB(245, 250, 255), Enum.Material.Snow
+	local core = addPiece(m, { Shape = Enum.PartType.Ball, Size = Vector3.one * 5, Color = white, Material = snow })
+	core.Name = "Core"
+	addPiece(
+		m,
+		{ Shape = Enum.PartType.Ball, Size = Vector3.one * 3.6, Color = white, Material = snow },
+		CFrame.new(0, 3.6, 0)
+	)
+	addPiece(
+		m,
+		{ Shape = Enum.PartType.Ball, Size = Vector3.one * 2.6, Color = white, Material = snow },
+		CFrame.new(0, 6.3, 0)
+	)
+	addPiece(m, { Size = Vector3.new(0.5, 0.5, 1.6), Color = Color3.fromRGB(255, 130, 30) }, CFrame.new(0, 6.3, -1.6))
+	addPiece(m, { Size = Vector3.new(2.4, 0.4, 2.4), Color = Color3.fromRGB(30, 30, 35) }, CFrame.new(0, 7.6, 0))
+	addPiece(m, { Size = Vector3.new(1.6, 1.4, 1.6), Color = Color3.fromRGB(30, 30, 35) }, CFrame.new(0, 8.4, 0))
+	m.PrimaryPart = core
+	return m, 3.5
+end
+
+PROJECTILES.Urn = function(): (Model, number)
+	local m = Instance.new("Model")
+	local clay = Color3.fromRGB(190, 105, 60)
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(4.6, 5, 4.6),
+		Color = clay,
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.2, 2.4, 2.4),
+		Color = clay,
+	}, CFrame.new(0, 2.8, 0) * CFrame.Angles(0, 0, math.pi / 2))
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.5, 4.7, 4.7),
+		Color = Color3.fromRGB(40, 120, 170),
+	}, CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.pi / 2))
+	m.PrimaryPart = core
+	return m, 3
+end
+
+PROJECTILES.Skull = function(): (Model, number)
+	local m = Instance.new("Model")
+	local bone = Color3.fromRGB(240, 230, 205)
+	local core = addPiece(m, { Shape = Enum.PartType.Ball, Size = Vector3.one * 4.6, Color = bone })
+	core.Name = "Core"
+	addPiece(m, { Size = Vector3.new(3, 1.8, 2.6), Color = bone }, CFrame.new(0, -2, -0.4))
+	for _, x in { -0.9, 0.9 } do
+		addPiece(m, { Size = Vector3.new(1.1, 1.1, 0.4), Color = Color3.fromRGB(30, 25, 25) }, CFrame.new(x, 0, -2.2))
+	end
+	m.PrimaryPart = core
+	return m, 3
+end
+
+PROJECTILES.Obsidian = function(): (Model, number)
+	local r = rng:NextNumber(3, 4.5)
+	local m = lumpy(r, Color3.fromRGB(35, 25, 45), Enum.Material.Basalt)
+	for i = 1, 3 do
+		addPiece(m, {
+			Size = Vector3.new(0.4, r * 1.8, 0.4),
+			Color = Color3.fromRGB(255, 120, 30),
+			Material = Enum.Material.Neon,
+		}, CFrame.Angles(i * 1.3, i * 2.1, 0.4))
+	end
+	return m, r + 0.8
+end
+
+PROJECTILES.Tire = function(): (Model, number)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.4, 6, 6),
+		Color = Color3.fromRGB(35, 35, 38),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.5, 3, 3),
+		Color = Color3.fromRGB(120, 255, 70),
+		Material = Enum.Material.Neon,
+	})
+	m.PrimaryPart = core
+	return m, 3.5
+end
+
+PROJECTILES.SludgeBucket = function(): (Model, number)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(4.4, 4, 4),
+		Color = Color3.fromRGB(110, 110, 120),
+		Material = Enum.Material.DiamondPlate,
+	}, CFrame.Angles(0, 0, math.pi / 2))
+	core.Name = "Core"
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.5, 3.6, 3.6),
+		Color = Color3.fromRGB(120, 255, 70),
+		Material = Enum.Material.Neon,
+	}, CFrame.new(0, 2.1, 0) * CFrame.Angles(0, 0, math.pi / 2))
+	m.PrimaryPart = core
+	return m, 3
+end
+
+PROJECTILES.Donut = function(): (Model, number)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.4, 6.4, 6.4),
+		Color = Color3.fromRGB(215, 160, 95),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.6, 6, 6),
+		Color = Color3.fromHSV(rng:NextNumber(), 0.45, 1),
+	}, CFrame.new(1.1, 0, 0))
+	addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.6, 2.2, 2.2),
+		Color = Color3.fromRGB(255, 240, 245),
+	})
+	for i = 1, 6 do
+		local a = i * math.pi / 3
+		addPiece(m, {
+			Size = Vector3.new(0.3, 0.9, 0.3),
+			Color = Color3.fromHSV(i / 6, 0.7, 1),
+		}, CFrame.new(1.45, math.cos(a) * 2.2, math.sin(a) * 2.2) * CFrame.Angles(a, 0, 0))
+	end
+	m.PrimaryPart = core
+	return m, 3.6
+end
+
+PROJECTILES.Cookie = function(): (Model, number)
+	local m = Instance.new("Model")
+	local core = addPiece(m, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1.2, 7, 7),
+		Color = Color3.fromRGB(205, 150, 80),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	core.Name = "Core"
+	for _ = 1, 6 do
+		local a, d = rng:NextNumber(0, 6.28), rng:NextNumber(0.5, 2.6)
+		addPiece(m, {
+			Size = Vector3.new(1.4, 0.8, 0.8),
+			Color = Color3.fromRGB(80, 45, 25),
+		}, CFrame.new(0.4, math.cos(a) * d, math.sin(a) * d))
+	end
+	m.PrimaryPart = core
+	return m, 3.8
+end
+
 -- What a projectile does when it lands. Anything not listed shatters into rubble that scatters and fades.
 local IMPACT = {
 	Meteor = "scorch",
@@ -429,6 +642,12 @@ local IMPACT = {
 	Snowball = "splat",
 	HayBale = "splat",
 	Cupcake = "splat",
+	Pumpkin = "splat",
+	Snowman = "splat",
+	Obsidian = "scorch",
+	SludgeBucket = "puddle",
+	Tire = "bounce",
+	Donut = "bounce",
 }
 local IMPACT_SOUND = {
 	Meteor = { "HeavyThud", 1.6, 0.8 },
@@ -446,6 +665,16 @@ local IMPACT_SOUND = {
 	Icicle = { "Impact", 1.5, 1.4 },
 	IceSpike = { "Impact", 1.5, 1.4 },
 	IceChunk = { "Impact", 1.5, 1.25 },
+	Pumpkin = { "HeavyThud", 1.1, 1.3 },
+	Beehive = { "WoodCrack", 1.1, 1.4 },
+	Snowman = { "HeavyThud", 1.2, 1.3 },
+	Urn = { "Impact", 1.3, 1.3 },
+	Skull = { "RockHit", 1.2, 1.1 },
+	Obsidian = { "HeavyThud", 1.4, 0.9 },
+	Tire = { "RockHit", 1.2, 0.9 },
+	SludgeBucket = { "Impact", 1.3, 1.1 },
+	Donut = { "RockHit", 1.1, 1.4 },
+	Cookie = { "Impact", 1.2, 1.4 },
 }
 
 local ROLLERS = {}
@@ -635,7 +864,7 @@ ROLLERS.Donut = function(): (Model, number, number)
 	return m, r, 3
 end
 
--- Flyers: hurled flat across the path at head height. Jumping into them hurts; slide (Ctrl) under them.
+-- Flyers: hurled flat across the path at head height. Jumping into them hurts; slide (Shift) under them.
 -- Each returns (model, radius); the model's long side (if any) lies along local X, laid along the path.
 local FLYERS = {}
 FLYERS.Boulder = PROJECTILES.Boulder
@@ -697,6 +926,9 @@ local function telegraph(ctx: Context, ground: Vector3, radius: number, duration
 		Transparency = 0.7,
 	}):Play()
 	Hazards.activeTelegraphs += 1
+	-- (where it will land: Client/RunCourse shows "DODGE!" when you are near one)
+	local target = { pos = ground, radius = radius }
+	Hazards.targets[target] = true
 	local cleared = false
 	return function()
 		if cleared then
@@ -704,9 +936,62 @@ local function telegraph(ctx: Context, ground: Vector3, radius: number, duration
 		end
 		cleared = true
 		Hazards.activeTelegraphs -= 1
+		Hazards.targets[target] = nil
 		ring:Destroy()
 		edge:Destroy()
 		fill:Destroy()
+	end
+end
+
+-- the incoming direction: an arrow on the ground (a shaft and a chevron) from the side the projectile comes from,
+-- pointing into its red circle
+local function incoming(ctx: Context, ground: Vector3, from: Vector3, radius: number): () -> ()
+	local flat = Vector3.new(ground.X - from.X, 0, ground.Z - from.Z)
+	local dir = if flat.Magnitude > 0.1 then flat.Unit else Vector3.new(1, 0, 0)
+	local y = ground.Y + 0.14
+	local color = Color3.fromRGB(255, 150, 30)
+	local parts = {}
+	local tip = ground - dir * (radius + 1.5)
+	local tail = ground - dir * (radius + 20)
+	local mid = (tip + tail) / 2
+	table.insert(
+		parts,
+		part({
+			Size = Vector3.new(1.2, 0.12, (tip - tail).Magnitude),
+			CFrame = CFrame.lookAt(Vector3.new(mid.X, y, mid.Z), Vector3.new(tip.X, y, tip.Z)),
+			Color = color,
+			Material = Enum.Material.Neon,
+			Transparency = 0.25,
+			Parent = ctx.folder,
+		})
+	)
+	for _, a in { 35, -35 } do
+		local at = CFrame.lookAt(Vector3.new(tip.X, y, tip.Z), Vector3.new(tip.X, y, tip.Z) + dir)
+			* CFrame.Angles(0, math.rad(a), 0)
+			* CFrame.new(0, 0, 2)
+		table.insert(
+			parts,
+			part({
+				Size = Vector3.new(1.2, 0.12, 4),
+				CFrame = at,
+				Color = color,
+				Material = Enum.Material.Neon,
+				Transparency = 0.25,
+				Parent = ctx.folder,
+			})
+		)
+	end
+	for _, p in parts do
+		TweenService:Create(
+			p,
+			TweenInfo.new(0.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true),
+			{ Transparency = 0.7 }
+		):Play()
+	end
+	return function()
+		for _, p in parts do
+			p:Destroy()
+		end
 	end
 end
 
@@ -724,7 +1009,8 @@ function Hazards.projectile(ctx: Context, kind: string, target: Vector3)
 	end
 	local build = PROJECTILES[kind] or PROJECTILES.Boulder
 	local model, radius = build()
-	local hitRadius = radius + 1.2 -- the red circle is exactly where the projectile lands
+	-- the red circle is exactly where the projectile lands (never huge: room to step out of it)
+	local hitRadius = math.min(radius + 1.2, 7)
 	local duration = Config.TelegraphTime * rng:NextNumber(0.9, 1.15)
 	local clear = telegraph(ctx, ground, hitRadius, duration)
 
@@ -735,6 +1021,14 @@ function Hazards.projectile(ctx: Context, kind: string, target: Vector3)
 	end
 	local edgeX = if side < 0 then ctx.trackMinX - rng:NextNumber(45, 85) else ctx.trackMaxX + rng:NextNumber(45, 85)
 	local start = Vector3.new(edgeX, ground.Y + rng:NextNumber(30, 55), ground.Z + rng:NextNumber(-25, 25))
+	-- (no arrow on the ground showing where it comes from any more: "distracting and disrupting"; user 2026-11-20)
+	local _ = incoming
+	local clearArrow = function() end
+	local clearCircle = clear
+	clear = function()
+		clearCircle()
+		clearArrow()
+	end
 	-- It visibly breaks loose from the hillside first.
 	burst(ctx, start, Color3.fromRGB(140, 120, 100), 18)
 	Sfx.at("Rubble", start, 0.9)
@@ -1018,7 +1312,7 @@ function Hazards.roller(ctx: Context, kind: string, centerZ: number, groundY: nu
 end
 
 -- Flyer: a yellow "SLIDE!" lane flashes across the path, then something is hurled flat across it from the
--- hillside at head height. Standing or jumping into it knocks you back; sliding (Ctrl) takes you under it.
+-- hillside at head height. Standing or jumping into it knocks you back; sliding (Shift) takes you under it.
 local SLIDE_CLEARANCE = 3.2 -- studs above the ground where the flyer's underside passes
 
 function Hazards.flyer(ctx: Context, kind: string, centerZ: number, groundY: number)
@@ -1053,7 +1347,8 @@ function Hazards.flyer(ctx: Context, kind: string, centerZ: number, groundY: num
 	local tag = Instance.new("BillboardGui")
 	tag.Size = UDim2.fromOffset(220, 70)
 	tag.StudsOffsetWorldSpace = Vector3.new(0, SLIDE_CLEARANCE + radius * 2 + 3, 0)
-	tag.AlwaysOnTop = true
+	tag.AlwaysOnTop = false
+	tag.Enabled = false -- (the prompt at the top of the screen says SLIDE!; signs over the lane covered the action)
 	tag.LightInfluence = 0
 	tag.Adornee = lane
 	tag.Parent = lane
@@ -1063,7 +1358,7 @@ function Hazards.flyer(ctx: Context, kind: string, centerZ: number, groundY: num
 	text.Font = Enum.Font.FredokaOne
 	text.TextScaled = true
 	text.TextColor3 = Color3.fromRGB(255, 220, 40)
-	text.Text = "SLIDE! (Ctrl / C)"
+	text.Text = "SLIDE! (Shift / C)"
 	text.Parent = tag
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 3
@@ -1141,7 +1436,7 @@ end
 -- Forced moves: something spanning the whole path comes straight down it at you, so the only way past is the move it
 -- calls for, with a big prompt in the middle of the screen.
 --   "Slide": a swooping wall of the biome's flyers (boulders, snowballs, fireballs...) dives in from the sky to
---            chest-to-head height. Standing or jumping into it hurts; sliding (hold Ctrl) takes you under it.
+--            chest-to-head height. Standing or jumping into it hurts; sliding (hold Shift) takes you under it.
 --   "Jump":  a giant roller (log, snow roll, lava rock...) along the ground, too tall for one jump: double jump.
 local BARRIER_LOOK = {
 	{ Color3.fromRGB(110, 72, 40), Enum.Material.Wood }, -- meadow: a giant log
@@ -1234,7 +1529,7 @@ function Hazards.barrier(ctx: Context, mode: string, biome: number, kinds: { str
 	model.Parent = ctx.folder
 	Hazards.activeRollers += 1
 	local hide = if mode == "Slide"
-		then HUD.prompt("SLIDE!", "hold Ctrl or C", Color3.fromRGB(255, 220, 40), 4)
+		then HUD.prompt("SLIDE!", "hold Shift or C", Color3.fromRGB(255, 220, 40), 4)
 		else HUD.prompt("DOUBLE JUMP!", "press Space twice", Color3.fromRGB(90, 220, 255), 4)
 	if mode == "Slide" then
 		burst(ctx, origin + Vector3.new(0, 28, 0), Color3.fromRGB(150, 130, 110), 25)
@@ -1286,7 +1581,13 @@ function Hazards.barrier(ctx: Context, mode: string, biome: number, kinds: { str
 			return
 		end
 		local feet, head = p.Y - 3, p.Y + 2
-		local blocked = if mode == "Slide" then not Moves.isBusy() and head > bottom and feet < top else feet < top
+		-- a jump barrier only gets you while you're on the ground as it comes through: in the air (or landing on top
+		-- of it) you cleared it, at full speed
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		local grounded = humanoid ~= nil and humanoid.FloorMaterial ~= Enum.Material.Air
+		local blocked = if mode == "Slide"
+			then not Moves.isBusy() and head > bottom and feet < top
+			else grounded and feet < top - 1.2
 		if blocked then
 			hitAlready = true
 			ctx.shake(1.3)

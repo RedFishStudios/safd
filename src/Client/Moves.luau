@@ -1,4 +1,4 @@
--- Double jump (press jump again in the air: a full forward somersault) and slide (hold Ctrl / the mobile button:
+-- Double jump (press jump again in the air: a full forward somersault) and slide (hold Shift / the mobile button:
 -- a low feet-first slide for as long as it's held, with a short speed burst at the start; let go and you're back
 -- up running). Animations play on the character's Animator, so other players see them; the effects (air ring,
 -- dust, wind) are in Client/MoveFx.
@@ -11,7 +11,6 @@ local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
-local HUD = require(script.Parent.HUD)
 local Movement = require(script.Parent.Movement)
 
 local player = Players.LocalPlayer
@@ -124,7 +123,7 @@ local function onCharacter(character: Model)
 		if new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Running then
 			r.canDouble = false
 			r.usedDouble = false
-			-- still holding Ctrl when you land: slide straight on
+			-- still holding Shift when you land: slide straight on
 			if r.held then
 				startSlide(r)
 			end
@@ -194,28 +193,10 @@ function Moves.init()
 		end
 	end)
 
-	-- Ctrl (or C). In a Studio playtest, Studio itself also reads Ctrl + W/A/S/D as its own shortcuts before the game
-	-- sees them: Ctrl+A selects everything in the place (Studio freezes for seconds on a map this size), Ctrl+S saves,
-	-- Ctrl+D duplicates the selection (a clone of your character if it's selected). Studio's log shows Select All firing
-	-- in the playtests where the slide "hung" (2026-11-19). Nothing in the game can block those, and the published game
-	-- has no such shortcuts, so there Ctrl is fine. In Studio a toast says to use C.
-	local studio = RunService:IsStudio()
-	local lastStudioHint = -math.huge
-	local SLIDE_KEYS = { Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl, Enum.KeyCode.C, Enum.KeyCode.ButtonB }
-	ContextActionService:BindAction(SLIDE_ACTION, function(_, inputState, input: InputObject)
-		if
-			studio
-			and inputState == Enum.UserInputState.Begin
-			and (input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl)
-			and os.clock() - lastStudioHint > 30
-		then
-			lastStudioHint = os.clock()
-			HUD.toast(
-				"Studio playtest: slide with C. Ctrl + W/A/S/D runs Studio's shortcuts (Select All, Save, Duplicate) and freezes Studio. Ctrl works normally in the published game.",
-				Color3.fromRGB(255, 210, 90),
-				8
-			)
-		end
+	-- Shift (or C; user 2026-11-20: "change slide to shift instead of control"). Ctrl is gone: in Studio Ctrl + W/A/S/D
+	-- ran Studio's own shortcuts. (Shift lock is switched off in StarterPlayer so Shift never toggles it.)
+	local SLIDE_KEYS = { Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift, Enum.KeyCode.C, Enum.KeyCode.ButtonB }
+	ContextActionService:BindAction(SLIDE_ACTION, function(_, inputState, _input: InputObject)
 		local r = rig
 		if not r then
 			return Enum.ContextActionResult.Pass
@@ -229,8 +210,86 @@ function Moves.init()
 		end
 		return Enum.ContextActionResult.Pass
 	end, true, table.unpack(SLIDE_KEYS))
+	-- Studio playtests only: automated test runs slide / double jump through attributes on the player (a script in
+	-- the test harness can't press keys): TestSlide = true / false, TestDoubleJump = any new number
+	if RunService:IsStudio() then
+		player:GetAttributeChangedSignal("TestSlide"):Connect(function()
+			local r = rig
+			if not r then
+				return
+			end
+			r.held = player:GetAttribute("TestSlide") == true
+			if r.held then
+				startSlide(r)
+			else
+				stopSlide(r)
+			end
+		end)
+		player:GetAttributeChangedSignal("TestDoubleJump"):Connect(function()
+			local r = rig
+			if r then
+				doubleJump(r)
+			end
+		end)
+	end
 	ContextActionService:SetTitle(SLIDE_ACTION, "Slide")
 	ContextActionService:SetPosition(SLIDE_ACTION, UDim2.new(1, -170, 1, -130))
+	-- phones (user 2026-11-21: "kid friendly controls"): the SLIDE button as big as the jump button, right beside it
+	-- on its left, a bright blue with SLIDE in big letters; it follows the jump button when the screen turns
+	task.spawn(function()
+		local button = ContextActionService:GetButton(SLIDE_ACTION)
+		local pg = player:WaitForChild("PlayerGui")
+		local touch = pg:WaitForChild("TouchGui", 30)
+		local jump = touch and touch:FindFirstChild("JumpButton", true) :: GuiObject?
+		if not button or not jump then
+			return
+		end
+		button.Image = ""
+		button.BackgroundColor3 = Color3.fromRGB(40, 140, 255)
+		button.BackgroundTransparency = 0.15
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = button
+		local st = Instance.new("UIStroke")
+		st.Thickness = 3
+		st.Color = Color3.new(1, 1, 1)
+		st.Transparency = 0.2
+		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		st.Parent = button
+		local title = button:FindFirstChild("ActionTitle", true)
+		if title and title:IsA("TextLabel") then
+			title.TextScaled = true
+			title.Font = Enum.Font.FredokaOne
+			title.Text = "SLIDE"
+			title.TextColor3 = Color3.new(1, 1, 1)
+			title.Size = UDim2.fromScale(0.8, 0.4)
+			title.Position = UDim2.fromScale(0.1, 0.3)
+		end
+		local function place()
+			local frame = button.Parent :: GuiObject?
+			if not frame or not frame:IsA("GuiObject") or jump.AbsoluteSize.X <= 0 then
+				return
+			end
+			local size = jump.AbsoluteSize
+			local at = jump.AbsolutePosition - Vector2.new(size.X * 1.15, -size.Y * 0.15) - frame.AbsolutePosition
+			button.Size = UDim2.fromOffset(size.X * 0.95, size.Y * 0.95)
+			button.Position = UDim2.fromOffset(at.X, at.Y)
+		end
+		place()
+		jump:GetPropertyChangedSignal("AbsolutePosition"):Connect(place)
+		jump:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+		-- on the treadmill only the Stop button shows (user 2026-11-22): no SLIDE there
+		local function showForTraining()
+			button.Visible = player:GetAttribute("Training") ~= true
+		end
+		showForTraining()
+		player:GetAttributeChangedSignal("Training"):Connect(showForTraining)
+		button:GetPropertyChangedSignal("Visible"):Connect(function()
+			if button.Visible and player:GetAttribute("Training") == true then
+				button.Visible = false
+			end
+		end)
+	end)
 end
 
 return Moves

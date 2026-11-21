@@ -70,12 +70,19 @@ end
 local gui: ScreenGui
 local bars: { Frame } = {}
 
+-- (one word at a time: a new one replaces the last, so they never pile up on each other)
+local lastPop: TextLabel? = nil
 function ChaseFx.pop(text: string, color: Color3, big: boolean?)
+	if lastPop and lastPop.Parent then
+		lastPop:Destroy()
+	end
 	local l = Instance.new("TextLabel")
+	lastPop = l
 	l.BackgroundTransparency = 1
 	l.AnchorPoint = Vector2.new(0.5, 0.5)
-	l.Position = UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.08, if big then 0.32 else 0.4)
-	l.Size = UDim2.fromScale(0.5, if big then 0.13 else 0.075)
+	-- (just under the top prompt, small: words in the middle of the screen covered the action; user 2026-11-20)
+	l.Position = UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.04, if big then 0.3 else 0.21)
+	l.Size = UDim2.fromScale(0.4, if big then 0.1 else 0.055)
 	l.Font = Enum.Font.FredokaOne
 	l.TextScaled = true
 	l.Text = text

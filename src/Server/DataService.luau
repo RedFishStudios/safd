@@ -1,6 +1,8 @@
 -- Player data persistence (DataStoreService) with a simple session lock so two servers
 -- never write the same player at once. Data shape:
---   { Money, Speed, Inventory = {animalId}, Placed = {{Uid, Id, X, Z, R}}, LastOnline, Version }
+--   { Money, Speed, Inventory = {animal key}, Placed = {{Uid, Id, X, Z, R, M?}}, LastOnline, Version }
+-- (an animal key is its id, or "Id*8" when it came home with a run bonus of x8: Config.parseKey; M is that x8 once
+-- it's placed)
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -20,6 +22,7 @@ local DEFAULT = {
 	Version = 1,
 	Discovered = {}, -- [animalId] = true once saved at least once (Index)
 	IndexClaimed = {}, -- [animalId] = true once its Index reward was claimed
+	BiomeClaimed = {}, -- [biome index as string] = true once its "biome complete" reward was claimed
 	Trails = {}, -- [trailIndex as string] = true when owned
 	EquippedTrail = 0,
 	FreeItemClaimed = false,
@@ -28,6 +31,8 @@ local DEFAULT = {
 	BaseTier = 1, -- base tier (Shared/Progression.Base)
 	SpeedMultiplier = 1, -- Robux "double your speed"
 	SeenIntro = false, -- the opening cutscene plays once, on your first visit (Client/IntroCutscene)
+	SeenTutorial = false, -- the new-player tutorial plays once, after the intro (Client/Tutorial)
+	TimePlayed = 0, -- seconds in the game, for the MOST TIME PLAYED leaderboard (Server/LeaderboardService)
 }
 
 type Profile = { Data: any, Key: string, CanSave: boolean, Saving: boolean }
@@ -54,7 +59,7 @@ local function reconcile(data: any): any
 	end
 	-- animals that are no longer in the game (the roster changed) are dropped, so nothing breaks on them
 	for i = #data.Inventory, 1, -1 do
-		if not Config.Animals[data.Inventory[i]] then
+		if not Config.parseKey(data.Inventory[i]) then
 			table.remove(data.Inventory, i)
 		end
 	end
@@ -62,6 +67,10 @@ local function reconcile(data: any): any
 		local entry = data.Placed[i]
 		if type(entry) ~= "table" or not Config.Animals[entry.Id] then
 			table.remove(data.Placed, i)
+		elseif entry.M ~= nil and (type(entry.M) ~= "number" or entry.M ~= entry.M or entry.M < 1) then
+			entry.M = nil
+		elseif entry.M then
+			entry.M = math.min(math.floor(entry.M), Config.RunMultiplierCap)
 		end
 	end
 	for _, map in { data.Discovered, data.IndexClaimed } do

@@ -15,6 +15,8 @@ local EVENTS = {
 	"StateChanged", -- server -> client (state table, see AnimalService.state)
 	"ClaimOffline", -- client -> server (multiplier ignored unless a product was bought)
 	"ClaimIndexReward", -- client -> server (animalId)
+	"ClaimIndexAll", -- client -> server: every discovered animal's unclaimed Index reward at once (Claim All)
+	"ClaimBiomeReward", -- client -> server (biome): the "biome complete" reward once all its animals are found
 	"SellAnimals", -- client -> server ({animalId})
 	"BuyTrail", -- client -> server (trailIndex)
 	"EquipTrail", -- client -> server (trailIndex | 0)
@@ -22,7 +24,12 @@ local EVENTS = {
 	"ProductRequest", -- client -> server (productKey) -> prompts the developer product if configured
 	"AdminCommand", -- client -> server (command, args) — admins only
 	"RunRing", -- client -> server (value): a multiplier ring collected on the run home
-	"RunReward", -- server -> client ({ Base, Rings, Total, Animals }): the bonus for getting animals home
+	"RunReward", -- server -> client ({ Base, Rings, Mult, Total, Animals }): income per second, before / after
+	"PlayIntro", -- server -> client: play the opening cutscene (first visit, or /intro)
+	"PlayTutorial", -- server -> client: play the new-player tutorial (/tutorial)
+	"TutorialDone", -- client -> server: finished or skipped the tutorial (saved: it plays once)
+	"GoHome", -- client -> server: the Base button (teleports you to your base; never during a run)
+	"AnimalAction", -- client -> server: My Animals ("PickUp", uid | "SellPlaced", uid | "Sell", id | "Place", id | "EquipBest")
 }
 local FUNCTIONS = {
 	"GetState", -- client -> server, returns { Inventory = {...} } once data is loaded

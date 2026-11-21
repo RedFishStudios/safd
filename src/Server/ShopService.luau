@@ -36,54 +36,234 @@ local function refreshMultiplier(player: Player)
 end
 ShopService.refreshMultiplier = refreshMultiplier
 
-local function rainbow(): ColorSequence
+-- The equipped trail on your character, as in "[NEW] Feed and Rob Animals" (TrailService): a soft glow band with a
+-- bright core inside it, both facing the camera, the core tapering off toward the tail, the colour running from your
+-- back to the tail (Config.Trails Look). The better ones leave sparkles (stars, clouds) while you run, and the further
+-- down the list, the taller, longer and brighter.
+local SPARK_SPEED = 6 -- studs/s: sparkles only while you're moving this fast
+local SPARKLE = "rbxasset://textures/particles/sparkles_main.dds"
+local PUFF = "rbxasset://textures/particles/smoke_main.dds"
+
+local function colours(list: { Color3 }): ColorSequence
+	if #list == 1 then
+		return ColorSequence.new(list[1])
+	end
 	local keys = {}
-	for i = 0, 6 do
-		table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6, 0.85, 1)))
+	for i, c in list do
+		table.insert(keys, ColorSequenceKeypoint.new((i - 1) / (#list - 1), c))
 	end
 	return ColorSequence.new(keys)
+end
+
+-- hard bands of the colours one after another down the trail (the Zebra Trail's stripes)
+local function bands(list: { Color3 }, count: number): ColorSequence
+	local n = math.clamp(math.floor(count), 1, 10)
+	local keys = {}
+	for i = 0, n - 1 do
+		local c = list[i % #list + 1]
+		table.insert(keys, ColorSequenceKeypoint.new(if i == 0 then 0 else i / n + 0.002, c))
+		table.insert(keys, ColorSequenceKeypoint.new((i + 1) / n, c))
+	end
+	return ColorSequence.new(keys)
+end
+
+local function ribbon(
+	parent: Instance,
+	a0: Attachment,
+	a1: Attachment,
+	color: ColorSequence,
+	life: number,
+	emission: number,
+	bright: number,
+	alpha: number,
+	taper: number
+)
+	local tr = Instance.new("Trail")
+	tr.Attachment0 = a0
+	tr.Attachment1 = a1
+	tr.Color = color
+	tr.Lifetime = life
+	tr.MinLength = 0.05
+	tr.FaceCamera = true
+	tr.LightEmission = emission
+	tr.LightInfluence = 0
+	tr.Brightness = bright
+	tr.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, alpha),
+		NumberSequenceKeypoint.new(0.35, alpha + (1 - alpha) * 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	tr.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, taper),
+	})
+	tr.Parent = parent
+	return tr
+end
+
+-- a particle emitter left off: the loop in init runs it at its "Rate" attribute while you move
+local function emitter(parent: Instance, color: Color3, rate: number): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "Sparks"
+	e.Color = ColorSequence.new(color)
+	e.LightInfluence = 0
+	e.Rotation = NumberRange.new(0, 360)
+	e.Rate = 0
+	e:SetAttribute("Rate", rate)
+	e.Parent = parent
+	return e
+end
+
+local function buildTrail(info, hrp: BasePart, holder: Instance): { Instance }
+	local look = info.Look
+	local rank = (info.Index - 1) / math.max(1, #Config.Trails - 1) -- 0 .. 1 down the list
+	local span = 2.4 + 1.6 * rank -- studs tall
+	local bottom = -span / 2 -- (centred on the middle of the body, not the legs; user 2026-11-20)
+	local made: { Instance } = {}
+	local function att(name: string, y: number): Attachment
+		local at = Instance.new("Attachment")
+		at.Name = name
+		at.Position = Vector3.new(0, y, 0.35)
+		at.Parent = hrp
+		table.insert(made, at)
+		return at
+	end
+	local life = 0.55 + 0.5 * rank
+	local seq = if look.Stripes then bands(look.Colors, look.Stripes) else colours(look.Colors)
+	ribbon(
+		holder,
+		att("ShopTrailGlow0", bottom + span),
+		att("ShopTrailGlow1", bottom),
+		if look.Glow then ColorSequence.new(look.Glow) else seq,
+		life,
+		look.GlowEmission or 1,
+		look.GlowBright or 1 + rank,
+		look.GlowAlpha or 0.6,
+		0.55
+	)
+	ribbon(
+		holder,
+		att("ShopTrailCore0", bottom + span * 0.8),
+		att("ShopTrailCore1", bottom + span * 0.2),
+		seq,
+		life * 0.85,
+		look.Core or 0.6,
+		look.Bright or 1 + 2 * rank,
+		0,
+		0.2
+	)
+	local spot: Attachment? = nil
+	local function fxSpot(): Attachment
+		spot = spot or att("ShopTrailSparks", bottom + span * 0.45)
+		return spot :: Attachment
+	end
+	if look.Sparks then
+		for _, c in look.Sparks do
+			local e = emitter(fxSpot(), c, (10 + 36 * rank) / #look.Sparks)
+			-- (a dark sparkle drawn as light would vanish: solid instead)
+			local dark = c.R * 0.3 + c.G * 0.59 + c.B * 0.11 < 0.25
+			e.Texture = SPARKLE
+			e.LightEmission = if dark then 0 else 1
+			e.Brightness = if dark then 1 else 1 + rank
+			e.Lifetime = NumberRange.new(0.45, 0.9)
+			e.Speed = NumberRange.new(0.5, 2)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.Drag = 3
+			e.Acceleration = Vector3.new(0, 3, 0)
+			local size = 0.3 + 0.25 * rank
+			e.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, size),
+				NumberSequenceKeypoint.new(0.5, size * 0.8),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			e.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.7, 0.2),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			e.RotSpeed = NumberRange.new(-180, 180)
+		end
+	end
+	-- a galaxy's stars: tiny points that hang in the air behind you and twinkle as they fade
+	if look.Stars then
+		for _, c in look.Stars do
+			local e = emitter(fxSpot(), c, (14 + 24 * rank) / #look.Stars)
+			e.Texture = SPARKLE
+			e.LightEmission = 1
+			e.Brightness = 2
+			e.Lifetime = NumberRange.new(0.8, 1.6)
+			e.Speed = NumberRange.new(1.5, 5)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.Drag = 5
+			local sz = 0.22
+			e.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.1, sz),
+				NumberSequenceKeypoint.new(0.25, sz * 0.35),
+				NumberSequenceKeypoint.new(0.4, sz),
+				NumberSequenceKeypoint.new(0.55, sz * 0.35),
+				NumberSequenceKeypoint.new(0.7, sz * 0.9),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			e.RotSpeed = NumberRange.new(-40, 40)
+		end
+	end
+	-- heavenly clouds: soft bright puffs left behind you, slowly rising and swelling as they fade
+	if look.Clouds then
+		local e = emitter(fxSpot(), look.Clouds, 7)
+		e.Texture = PUFF
+		e.LightEmission = 0.35
+		e.Brightness = 1.2
+		e.Lifetime = NumberRange.new(1, 1.6)
+		e.Speed = NumberRange.new(0.4, 1.2)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Acceleration = Vector3.new(0, 1.2, 0)
+		e.Drag = 1
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 3.2) })
+		e.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.15, 0.55),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		e.RotSpeed = NumberRange.new(-20, 20)
+	end
+	-- a glow of light around you
+	if look.Light then
+		local light = Instance.new("PointLight")
+		light.Name = "ShopTrailLight"
+		light.Color = look.Light
+		light.Range = 12
+		light.Brightness = 1.2
+		light.Shadows = false
+		light.Parent = att("ShopTrailAura", 0)
+	end
+	return made
 end
 
 local function applyTrail(player: Player)
 	local data = DataService.get(player)
 	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not data or not root then
 		return
 	end
-	local old = root:FindFirstChild("SAFDTrail")
+	local old = root:FindFirstChild("ShopTrail")
 	if old then
 		old:Destroy()
 	end
-	for _, name in { "SAFDTrailTop", "SAFDTrailBottom" } do
-		local a = root:FindFirstChild(name)
-		if a then
-			a:Destroy()
-		end
-	end
 	local info = Config.Trails[data.EquippedTrail]
-	if not info then
+	if not info or not data.Trails[tostring(data.EquippedTrail)] then
 		return
 	end
-	local top = Instance.new("Attachment")
-	top.Name = "SAFDTrailTop"
-	top.Position = Vector3.new(0, 0.9, 0.4)
-	top.Parent = root
-	local bottom = Instance.new("Attachment")
-	bottom.Name = "SAFDTrailBottom"
-	bottom.Position = Vector3.new(0, -1.6, 0.4)
-	bottom.Parent = root
-	local trail = Instance.new("Trail")
-	trail.Name = "SAFDTrail"
-	trail.Attachment0 = top
-	trail.Attachment1 = bottom
-	trail.Lifetime = 0.45
-	trail.LightEmission = 0.6
-	trail.FaceCamera = true
-	trail.Color = if info.Rainbow then rainbow() else ColorSequence.new(info.Color)
-	trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
-	trail:SetAttribute("Owner", player.UserId)
-	trail.Parent = root
+	local holder = Instance.new("Folder")
+	holder.Name = "ShopTrail"
+	local made = buildTrail(info, root, holder)
+	holder.Destroying:Connect(function()
+		for _, m in made do
+			m:Destroy()
+		end
+	end)
+	holder.Parent = root
 end
 
 local function grant(player: Player, key: string): boolean
@@ -125,6 +305,29 @@ function ShopService.playerLoaded(player: Player)
 end
 
 function ShopService.init()
+	-- trail sparkles only while you run (the trail itself fades on its own when you stop)
+	task.spawn(function()
+		while true do
+			task.wait(0.15)
+			for _, p in Players:GetPlayers() do
+				local char = p.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local spot = hrp and hrp:FindFirstChild("ShopTrailSparks")
+				if hrp and spot then
+					local v = hrp.AssemblyLinearVelocity
+					local moving = Vector2.new(v.X, v.Z).Magnitude > SPARK_SPEED
+					for _, e in spot:GetChildren() do
+						if e:IsA("ParticleEmitter") then
+							local want = if moving then (e:GetAttribute("Rate") :: number?) or 0 else 0
+							if e.Rate ~= want then
+								e.Rate = want
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
 	Net.event("BuyTrail").OnServerEvent:Connect(function(player, index)
 		local data = DataService.get(player)
 		local info = type(index) == "number" and Config.Trails[index]
@@ -134,11 +337,20 @@ function ShopService.init()
 		local key = tostring(index)
 		if data.Trails[key] then
 			data.EquippedTrail = index
+			notify(
+				player,
+				`Equipped {info.Name}! Training speed x{Util.formatNumber(info.Multiplier)}`,
+				Color3.fromRGB(120, 255, 140)
+			)
 		elseif data.Money >= info.Price then
 			data.Money -= info.Price
 			data.Trails[key] = true
 			data.EquippedTrail = index
-			notify(player, `Bought {info.Name}! Speed x{info.Multiplier}`, Color3.fromRGB(120, 255, 140))
+			notify(
+				player,
+				`Bought {info.Name}! Training speed x{Util.formatNumber(info.Multiplier)}`,
+				Color3.fromRGB(120, 255, 140)
+			)
 			Purchased:FireClient(player, "Trail")
 		else
 			notify(player, `You need ${Util.formatNumber(info.Price)} for {info.Name}.`, Color3.fromRGB(255, 120, 80))
@@ -162,6 +374,14 @@ function ShopService.init()
 		refreshMultiplier(player)
 		applyTrail(player)
 		AnimalService.pushState(player)
+		local info = Config.Trails[index]
+		if info then
+			notify(
+				player,
+				`Equipped {info.Name}! Training speed x{Util.formatNumber(info.Multiplier)}`,
+				Color3.fromRGB(120, 255, 140)
+			)
+		end
 	end)
 
 	-- Upgrade signs beside the base and the treadmill (Client/UpgradeSigns): pay the next level in cash.

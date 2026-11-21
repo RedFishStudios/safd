@@ -29,44 +29,46 @@ local function tier(model: string, name: string, price: number, gain: number)
 	return { Model = model, DisplayName = name, Price = price, Gain = gain }
 end
 
+-- PROGRESSION (2026-11-22, user: "study Break and Steal an Egg, Steal an Egg, Throw Food for Animals and apply the
+-- same progression"; researched from the community wikis / guides, see Config.AnimalIncome).
+-- Treadmills = Steal an Egg's treadmill ladder (games.gg "best treadmills ranked"): Common +2 free, Sci-Fi +5 $15K,
+-- Flame +12 $250K, Celebrity +30 $5M, Golden +80 $120M, Freeze +100 $3B, Lucky Block +200 $75B, Hacker +500 $2T,
+-- Demonic +1,000 $50T, Angelic +2,000 $1Qd, bought in order. Our 16 treadmill models take those 10 steps in order; the
+-- last 6 carry the ladder on (x25 the price, x2 the gain each, its own late-game ratio). Prices are exact: no curve.
 -- Gain = speed points per training step (a step every 0.25 s, down to 0.1 s)
-local TREADMILL_STAGES = { 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5 }
 Progression.Treadmill = {
-	tier("BasicTreadmill", "Basic", 0, 1),
-	tier("MilitaryTreadmill", "Military", 500, 2),
-	tier("CandyTreadmill", "Candy", 2500, 3),
-	tier("PirateTreadmill", "Pirate", 12000, 5),
-	tier("FrostTreadmill", "Frost", 40000, 15),
-	tier("SteampunkTreadmill", "Steampunk", 300000, 32),
-	tier("MagmaTreadmill", "Magma", 1000000, 63),
-	tier("JungleTreadmill", "Jungle", 2500000, 160),
-	tier("CrystalTreadmill", "Crystal", 4500000, 436),
-	tier("DesertTreadmill", "Desert", 25000000, 678),
-	tier("NeonArcadeTreadmill", "Neon Arcade", 85000000, 1115),
-	tier("UnderwaterTreadmill", "Underwater", 300000000, 1600),
-	tier("SpaceTreadmill", "Space", 650000000, 2280),
-	tier("RoyalTreadmill", "Royal", 3000000000, 3400),
-	tier("VolcanicAshTreadmill", "Volcanic Ash", 10000000000, 4850),
-	tier("VolcanicAshTreadmill_Gold", "Gold Volcanic Ash", 50000000000, 7750),
+	tier("BasicTreadmill", "Basic", 0, 2),
+	tier("MilitaryTreadmill", "Military", 15000, 5),
+	tier("CandyTreadmill", "Candy", 250000, 12),
+	tier("PirateTreadmill", "Pirate", 5000000, 30),
+	tier("FrostTreadmill", "Frost", 120000000, 80),
+	tier("SteampunkTreadmill", "Steampunk", 3000000000, 100),
+	tier("MagmaTreadmill", "Magma", 75000000000, 200),
+	tier("JungleTreadmill", "Jungle", 2000000000000, 500),
+	tier("CrystalTreadmill", "Crystal", 50000000000000, 1000),
+	tier("DesertTreadmill", "Desert", 1000000000000000, 2000),
+	tier("NeonArcadeTreadmill", "Neon Arcade", 25000000000000000, 4000),
+	tier("UnderwaterTreadmill", "Underwater", 625000000000000000, 8000),
+	tier("SpaceTreadmill", "Space", 1.6e19, 16000),
+	tier("RoyalTreadmill", "Royal", 4e20, 32000),
+	tier("VolcanicAshTreadmill", "Volcanic Ash", 1e22, 64000),
+	tier("VolcanicAshTreadmill_Gold", "Gold Volcanic Ash", 2.5e23, 128000),
 }
-for i, t in Progression.Treadmill do
-	t.Price = Progression.price(t.Price, TREADMILL_STAGES[i] or TREADMILL_STAGES[#TREADMILL_STAGES])
-end
 
--- Base (pen) tiers: more room for animals that earn money. Each level uses the next BaseLvl model.
-local BASE_STAGES = { 1, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5 }
+-- Base (pen) tiers = Break and Steal an Egg's pen (allthings.how guides): it starts with 8 slots, Lv2 $10K (+1 slot),
+-- Lv3 $1M, Lv4 $45M; past that the guides stop, so the ladder carries on at its own x40 per level. Each level uses the
+-- next BaseLvl model.
 Progression.Base = {
-	{ Price = 0, PetSlots = 3 },
-	{ Price = 250, PetSlots = 4 },
-	{ Price = 6000, PetSlots = 5 },
-	{ Price = 100000, PetSlots = 6 },
-	{ Price = 2000000, PetSlots = 8 },
-	{ Price = 30000000, PetSlots = 10 },
-	{ Price = 500000000, PetSlots = 12 },
-	{ Price = 8000000000, PetSlots = 15 },
+	{ Price = 0, PetSlots = 8 },
+	{ Price = 10000, PetSlots = 9 },
+	{ Price = 1000000, PetSlots = 10 },
+	{ Price = 45000000, PetSlots = 11 },
+	{ Price = 1800000000, PetSlots = 12 },
+	{ Price = 72000000000, PetSlots = 13 },
+	{ Price = 2900000000000, PetSlots = 14 },
+	{ Price = 115000000000000, PetSlots = 15 },
 }
 for i, level in Progression.Base do
-	level.Price = Progression.price(level.Price, BASE_STAGES[i] or BASE_STAGES[#BASE_STAGES])
 	level.Model = `BaseLvl{i}`
 end
 
@@ -81,7 +83,10 @@ function Progression.walkSpeed(points: number): number
 	for _, b in Config.Biomes do
 		local bx, bw = math.log10(1 + b.RecommendedSpeed), b.WallSpeed + T.Lead
 		if x <= bx then
-			return prevW + (bw - prevW) * (x - prevX) / (bx - prevX)
+			-- (cubed: most of the step comes right at the recommended speed. Under it the wall is faster than you:
+			-- user 2026-11-21, 200 speed must not be enough for the Tundra's 1K)
+			local f = (x - prevX) / (bx - prevX)
+			return prevW + (bw - prevW) * f * f * f
 		end
 		prevX, prevW = bx, bw
 	end

@@ -18,6 +18,7 @@ Movement.locked = false -- true while something else (the treadmill) controls th
 local slowUntil = 0
 local boostUntil = 0
 local boostMultiplier = 1
+local boostTime = 1
 
 function Movement.slow(duration: number)
 	slowUntil = math.max(slowUntil, os.clock() + duration)
@@ -29,6 +30,7 @@ end
 
 function Movement.boost(multiplier: number, duration: number)
 	boostMultiplier = multiplier
+	boostTime = math.max(duration, 0.01)
 	boostUntil = os.clock() + duration
 end
 
@@ -53,7 +55,9 @@ function Movement.init()
 		local now = os.clock()
 		local speed = Movement.baseSpeed()
 		if now < boostUntil then
-			speed *= boostMultiplier
+			-- eases back to normal speed over the burst (a sudden drop from 1.5x felt like a hitch)
+			local left = (boostUntil - now) / boostTime
+			speed *= 1 + (boostMultiplier - 1) * math.min(left * 1.5, 1)
 		end
 		if now < slowUntil then
 			speed *= Config.SlowMultiplier
